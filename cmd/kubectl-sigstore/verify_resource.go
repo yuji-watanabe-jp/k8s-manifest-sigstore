@@ -50,6 +50,7 @@ func NewCmdVerifyResource() *cobra.Command {
 			}
 			return nil
 		},
+		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
 	}
 
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")

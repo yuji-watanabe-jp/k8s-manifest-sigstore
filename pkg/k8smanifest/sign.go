@@ -73,9 +73,10 @@ func Sign(inputDir, imageRef, keyPath, output string, updateAnnotation bool) ([]
 				return nil, errors.Wrap(err, "failed to write a signed YAML into")
 			}
 		}
+	} else {
+		// TODO: support annotation signature instead of error
+		return nil, errors.New("imageRef is empty")
 	}
-
-	// TODO: support annotation signature
 
 	return signedBytes, nil
 }
