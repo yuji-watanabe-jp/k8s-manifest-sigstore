@@ -7,7 +7,17 @@ This kubectl subscommand plugin enables both developper to sign k8s manifest yam
 
 ## Installation
 
-plugin is a standalone executable file `kubectl-sigstore`. To install the plugin, move this executable file to any location on your PATH.
+The plugin is a standalone executable file `kubectl-sigstore`. 
+
+To build this file, run the following. 
+```
+git clone git@github.com:yuji-watanabe-jp/k8s-manifest-sigstore.git
+cd k8s-manifest-sigstore
+make
+```
+You will find new file `kubectl-sigstore`.
+
+To install the plugin, move this executable file to any location on your PATH.
 
 ## Usage (annotation)
 
