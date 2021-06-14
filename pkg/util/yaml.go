@@ -28,8 +28,28 @@ import (
 
 	"github.com/ghodss/yaml"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 )
+
+type ResourceInfo struct {
+	group     string
+	version   string
+	kind      string
+	name      string
+	namespace string
+	raw       []byte
+}
+
+func (ri ResourceInfo) Map() map[string]string {
+	m := map[string]string{}
+	m["group"] = ri.group
+	m["version"] = ri.version
+	m["kind"] = ri.kind
+	m["namespace"] = ri.namespace
+	m["name"] = ri.name
+	return m
+}
 
 func FindYAMLsInDir(dirPath string) ([][]byte, error) {
 
@@ -48,6 +68,47 @@ func FindYAMLsInDir(dirPath string) ([][]byte, error) {
 		return nil, err
 	}
 	return foundYAMLs, nil
+}
+
+func FindSingleYaml(concatYamlBytes []byte, apiVersion, kind, name, namespace string) (bool, []byte) {
+	gv, err := schema.ParseGroupVersion(apiVersion)
+	if err != nil {
+		return false, nil
+	}
+	reqInfos := map[string]string{}
+	reqInfos["group"] = gv.Group
+	reqInfos["version"] = gv.Version
+	reqInfos["kind"] = kind
+	reqInfos["namespace"] = namespace
+	reqInfos["name"] = name
+
+	resourcesInConcatYaml := parseResourceInfo(concatYamlBytes)
+	matchedItems := []ResourceInfo{}
+	for _, ri := range resourcesInConcatYaml {
+		msgInfo := ri.Map()
+		if matchResourceInfo(msgInfo, reqInfos, []string{"group", "kind", "name"}) {
+			matchedItems = append(matchedItems, ri)
+		}
+	}
+	if len(matchedItems) == 0 {
+		return false, nil
+	}
+	if len(matchedItems) == 1 {
+		return true, matchedItems[0].raw
+	}
+
+	matchedItems2 := []ResourceInfo{}
+	for _, ri := range resourcesInConcatYaml {
+		msgInfo := ri.Map()
+		if matchResourceInfo(msgInfo, reqInfos, []string{"group", "kind", "name", "namespace"}) {
+			matchedItems2 = append(matchedItems2, ri)
+		}
+	}
+	if len(matchedItems2) == 0 {
+		return true, matchedItems[0].raw
+	} else {
+		return true, matchedItems2[0].raw
+	}
 }
 
 func ConcatenateYAMLs(yamls [][]byte) []byte {
@@ -74,6 +135,45 @@ func SplitConcatYAMLs(yaml []byte) [][]byte {
 		yamls = append(yamls, tB)
 	}
 	return yamls
+}
+
+func parseResourceInfo(concatYamlBytes []byte) []ResourceInfo {
+	yamls := SplitConcatYAMLs(concatYamlBytes)
+	resources := []ResourceInfo{}
+	for _, yamlBytes := range yamls {
+		var obj *unstructured.Unstructured
+		_ = yaml.Unmarshal(yamlBytes, &obj)
+		if obj == nil {
+			continue
+		}
+		resources = append(resources, ResourceInfo{
+			group:     obj.GroupVersionKind().Group,
+			version:   obj.GroupVersionKind().Version,
+			kind:      obj.GetKind(),
+			name:      obj.GetName(),
+			namespace: obj.GetNamespace(),
+			raw:       yamlBytes,
+		})
+	}
+
+	return resources
+}
+
+func matchResourceInfo(msgInfos, reqInfos map[string]string, useKeys []string) bool {
+	keyCount := len(useKeys)
+	matchedCount := 0
+	for _, key := range useKeys {
+		mval := msgInfos[key]
+		rval := reqInfos[key]
+		if mval == rval {
+			matchedCount += 1
+		}
+	}
+	matched := false
+	if keyCount == matchedCount && matchedCount > 0 {
+		matched = true
+	}
+	return matched
 }
 
 func isK8sResourceYAML(data []byte) bool {

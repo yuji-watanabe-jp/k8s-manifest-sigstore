@@ -34,3 +34,5 @@ var rootCmd = &cobra.Command{
 		return nil
 	},
 }
+
+// TODO: set common flags for imageRef & key
