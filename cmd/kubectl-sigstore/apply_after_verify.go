@@ -35,7 +35,7 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 	var keyPath string
 	cmd := &cobra.Command{
 		Use:   "apply-after-verify -f <YAMLFILE> [-i <IMAGE>]",
-		Short: "A command to verify Kubernetes YAML manifests",
+		Short: "A command to apply Kubernetes YAML manifests only after verifying signature",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("[DEBUG] cmd.Args:", cmd.Args)
 			_, kubeApplyArgs := splitApplyArgs(args)
@@ -52,7 +52,7 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVarP(&filename, "filename", "f", "", "file name which will be signed (if dir, all YAMLs inside it will be signed)")
-	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "image name in which you execute argocd-buidler-core")
+	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
 
 	return cmd
