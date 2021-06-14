@@ -36,7 +36,7 @@ func NewCmdVerifyResource() *cobra.Command {
 	var namespace string
 	cmd := &cobra.Command{
 		Use:   "verify-resource -f <YAMLFILE> [-i <IMAGE>]",
-		Short: "A command to verify Kubernetes YAML manifests",
+		Short: "A command to verify Kubernetes manifests of resources on cluster",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fullArgs := getOriginalFullArgs("verify-resource")
 			_, kubeGetArgs := splitArgs(fullArgs)
@@ -52,7 +52,7 @@ func NewCmdVerifyResource() *cobra.Command {
 		},
 	}
 
-	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "image ref which bundles manifest YAMLs")
+	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
 
 	return cmd

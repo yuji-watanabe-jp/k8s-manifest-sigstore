@@ -19,19 +19,39 @@ You will find new file `kubectl-sigstore`.
 
 To install the plugin, move this executable file to any location on your PATH.
 
-## Usage (annotation)
 
-### Sign a k8s yaml manifest file
+## Usage (bundle image on OCI registry)
 
-`kubectl sigstore sign foo.yaml`
+```
+Usage:
+  kubectl sigstore [flags]
+  kubectl sigstore [command]
 
-### Sign k8s yaml manifest files
+Available Commands:
+  apply-after-verify A command to apply Kubernetes YAML manifests only after verifying signature
+  sign               A command to sign Kubernetes YAML manifests
+  verify             A command to verify Kubernetes YAML manifests
+  verify-resource    A command to verify Kubernetes manifests of resources on cluster
+```
 
-`kubectl sigstore sign foo.yaml`
+
+### Sign k8s yaml manifest files as bundle OCI image
+
+A bundle image reference is added in metadata.annotations in manifest yaml by default. 
+
+`kubectl sigstore sign -f foo.yaml --image bundle-bar:dev`
+
+Inserting annotation can be disabled by adding `--annotation=false` option. (If annotation is not added, `--image` option must be supplied when verifying signature.)
+
+`kubectl sigstore sign -f foo.yaml --image bundle-bar:dev --annotation=false`
 
 ### Verify a k8s yaml manifest file
 
 `kubectl sigstore verify foo.yaml`
+
+An image reference can be supplied with command option.
+
+`kubectl sigstore verify foo.yaml --image bundle-bar:dev`
 
 ### Create resource with a k8s yaml manifest file after verifying signature
 
@@ -39,26 +59,55 @@ To install the plugin, move this executable file to any location on your PATH.
 
 ### Verify a k8s yaml manifest of deployed resource with signature
 
-`kubectl sigstore verify-resource deploy foo -n ns1`
+`kubectl sigstore verify-resource cm foo -n ns1`
 
-## Usage (bundle image on OCI registry)
 
-A bundle image reference is added in metadata.annotations in manifest yaml by default. 
-It is not added when `-no-annotation` option is supplied
+Commands
 
-### Sign k8s yaml manifest files as bundle OCI image
+```
+Usage:
+  kubectl-sigstore sign -f <YAMLFILE> [-i <IMAGE>] [flags]
 
-`kubectl sigstore sign -dir bar -image bundle-bar:dev`
+Flags:
+  -a, --annotation              whether to update annotation and generate signed yaml file (default true)
+  -f, --filename string         file name which will be signed (if dir, all YAMLs inside it will be signed)
+  -h, --help                    help for sign
+  -i, --image string            signed image name which bundles yaml files
+  -k, --key string              path to your signing key (if empty, do key-less signing)
+  -o, --output <input>.signed   output file name (if empty, use <input>.signed)
+```
 
-### Verify a k8s yaml manifest file
+```
+Usage:
+  kubectl-sigstore verify -f <YAMLFILE> [-i <IMAGE>] [flags]
 
-`kubectl sigstore verify foo.yaml -image bundle-bar:dev`
+Flags:
+  -f, --filename string   file name which will be signed (if dir, all YAMLs inside it will be signed)
+  -h, --help              help for verify
+  -i, --image string      signed image name which bundles yaml files
+  -k, --key string        path to your signing key (if empty, do key-less signing)
+```
 
-### Create resource with a k8s yaml manifest file after verifying signature
+```
+Usage:
+  kubectl-sigstore apply-after-verify -f <YAMLFILE> [-i <IMAGE>] [flags]
 
-`kubectl sigstore apply-after-verify -f foo.yaml -n ns1 -image bundle-bar:dev`
+Flags:
+  -f, --filename string   file name which will be signed (if dir, all YAMLs inside it will be signed)
+  -h, --help              help for apply-after-verify
+  -i, --image string      signed image name which bundles yaml files
+  -k, --key string        path to your signing key (if empty, do key-less signing)
+```
 
-### Verify a k8s yaml manifest of deployed resource with signature
+```
+Usage:
+  kubectl-sigstore verify-resource <options> [-i <IMAGE>] [flags]
 
-`kubectl sigstore verify-resource cm foo -n ns1 -image bundle-bar:dev`
+opitons are same as "kubectl get"
 
+Flags:
+  -h, --help               help for verify-resource
+  -i, --image string       signed image name which bundles yaml files
+  -k, --key string         path to your signing key (if empty, do key-less signing)
+  -n, --namespace string   namespace of specified resource
+```
