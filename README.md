@@ -34,6 +34,7 @@ Available Commands:
   verify-resource    A command to verify Kubernetes manifests of resources on cluster
 ```
 
+To use keyless signing, set `export COSIGN_EXPERIMENTAL=1`
 
 ### Sign k8s yaml manifest files as bundle OCI image
 
