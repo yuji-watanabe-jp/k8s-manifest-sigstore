@@ -17,16 +17,19 @@
 package verify
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
+	mapnode "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util/mapnode"
 
 	"github.com/sigstore/cosign/cmd/cosign/cli"
 	"github.com/sigstore/cosign/pkg/cosign"
@@ -55,7 +58,7 @@ func Verify(manifest []byte, imageRef, keyPath string) (*VerifyResult, error) {
 		}
 		ok, err := matchManifest(manifest, image)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to pull image")
+			return nil, errors.Wrap(err, "failed to match manifest")
 		}
 		if !ok {
 			return nil, errors.New("failed to match manifest with image")
@@ -119,11 +122,34 @@ func imageVerify(imageRef string, pubkeyPath *string) (bool, string, error) {
 }
 
 func matchManifest(manifest []byte, image v1.Image) (bool, error) {
-	manifestInImage, err := k8ssigutil.GenerateConcatYAMLsFromImage(image)
+	concatYAMLFromImage, err := k8ssigutil.GenerateConcatYAMLsFromImage(image)
 	if err != nil {
 		return false, err
 	}
+	fmt.Println("[DEBUG] manifest:", string(manifest))
+	fmt.Println("[DEBUG] manifest in image:", string(concatYAMLFromImage))
+	inputFileNode, err := mapnode.NewFromYamlBytes(manifest)
+	if err != nil {
+		return false, err
+	}
+	yamls := k8ssigutil.SplitConcatYAMLs(concatYAMLFromImage)
+	sumErr := []string{}
+	for _, yaml := range yamls {
+		if bytes.Equal(manifest, yaml) {
+			return true, nil
+		}
+		yamlInImageNode, err := mapnode.NewFromYamlBytes(yaml)
+		if err != nil {
+			sumErr = append(sumErr, err.Error())
+		}
+		diff := inputFileNode.Diff(yamlInImageNode)
+		if diff == nil || diff.Size() == 0 {
+			return true, nil
+		}
+	}
+	if len(sumErr) > 0 {
+		return false, errors.New(fmt.Sprintf("failed to find the input file in image; %s", strings.Join(sumErr, "; ")))
+	}
 
-	// now doing here
-	return true, nil
+	return false, errors.New("failed to find the input file in image")
 }

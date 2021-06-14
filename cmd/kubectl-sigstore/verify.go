@@ -18,25 +18,23 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	k8ssigstoreutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
 	k8sverify "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/verify"
 )
 
 func NewCmdVerify() *cobra.Command {
 
 	var imageRef string
-	var inputDir string
+	var filename string
 	var keyPath string
-	var output string
 	cmd := &cobra.Command{
 		Use:   "verify -f <YAMLFILE> [-i <IMAGE>]",
 		Short: "A command to verify Kubernetes YAML manifests",
 		RunE: func(cmd *cobra.Command, args []string) error {
 
-			err := sign(inputDir, imageRef, keyPath, output)
+			err := verify(filename, imageRef, keyPath)
 			if err != nil {
 				return err
 			}
@@ -44,24 +42,18 @@ func NewCmdVerify() *cobra.Command {
 		},
 	}
 
-	cmd.PersistentFlags().StringVarP(&inputDir, "filename", "f", "", "file name which will be signed (if dir, all YAMLs inside it will be signed)")
+	cmd.PersistentFlags().StringVarP(&filename, "filename", "f", "", "file name which will be signed (if dir, all YAMLs inside it will be signed)")
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "image name in which you execute argocd-buidler-core")
-	cmd.PersistentFlags().StringVarP(&output, "output", "o", "", "output file name (if empty, use `<input>.signed`)")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
 
 	return cmd
 }
 
-func verify(inputDir, imageRef, keyPath, output string) error {
-	if output == "" {
-		output = inputDir + ".signed"
-	}
-
-	yamls, err := k8ssigstoreutil.FindYAMLsInDir(inputDir)
+func verify(filename, imageRef, keyPath string) error {
+	manifest, err := ioutil.ReadFile(filename)
 	if err != nil {
-		return errors.Wrap(err, "failed to get YAMLs in a dir")
+		return err
 	}
-	manifest := k8ssigstoreutil.ConcatenateYAMLs(yamls)
 
 	result, err := k8sverify.Verify(manifest, imageRef, keyPath)
 	if err != nil {

@@ -22,6 +22,7 @@ import (
 
 func init() {
 	rootCmd.AddCommand(NewCmdSign())
+	rootCmd.AddCommand(NewCmdVerify())
 }
 
 func main() {
