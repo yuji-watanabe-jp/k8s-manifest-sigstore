@@ -28,7 +28,7 @@ func init() {
 	rootCmd.AddCommand(NewCmdVerifyResource())
 	rootCmd.AddCommand(NewCmdApplyAfterVerify())
 
-	log.SetLevel(log.DebugLevel)
+	log.SetLevel(log.InfoLevel)
 }
 
 func main() {
