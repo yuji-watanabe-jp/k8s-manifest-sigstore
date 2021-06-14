@@ -121,10 +121,14 @@ func signImage(imageRef, keyPath string) error {
 	// TODO: handle the case that COSIGN_EXPERIMENTAL env var is not set
 
 	opt := cosigncli.SignOpts{
-		KeyRef:      keyPath,
 		Annotations: imageAnnotation,
 		Sk:          sk,
 		IDToken:     idToken,
+	}
+
+	if keyPath != "" {
+		opt.KeyRef = keyPath
+		opt.Pf = cosigncli.GetPass
 	}
 
 	return cosigncli.SignCmd(context.Background(), opt, imageRef, true, "", false, false)
