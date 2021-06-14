@@ -46,11 +46,7 @@ func NewCmdSign() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVarP(&inputDir, "filename", "f", "", "file name which will be signed (if dir, all YAMLs inside it will be signed)")
-<<<<<<< HEAD
-	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "image ref which bundles manifest YAMLs")
-=======
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
->>>>>>> 2423f39626f8791e07c4536351d49f3f981011ac
 	cmd.PersistentFlags().StringVarP(&output, "output", "o", "", "output file name (if empty, use `<input>.signed`)")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
 	cmd.PersistentFlags().BoolVarP(&updateAnnotation, "annotation", "a", true, "whether to update annotation and generate signed yaml file")
