@@ -64,6 +64,6 @@ func sign(inputDir, imageRef, keyPath, output string, updateAnnotation bool) err
 		fmt.Fprintln(os.Stderr, err.Error())
 		return nil
 	}
-	log.Info("signed manifest generated at", output)
+	log.Info("signed manifest generated at ", output)
 	return nil
 }

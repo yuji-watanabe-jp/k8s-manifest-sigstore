@@ -1,5 +1,4 @@
-# Kubernetes Manifest Sigstore
-kubectl sigstore signing plugin
+# kubectl plugin for signing Kubernetes manifest YAML files with sigstore signing
 
 > :warning: Still under developement, not ready for production use yet!
 
@@ -34,10 +33,11 @@ Available Commands:
   verify-resource    A command to verify Kubernetes manifests of resources on cluster
 ```
 
+To use keyless signing, set `export COSIGN_EXPERIMENTAL=1`
 
 ### Sign k8s yaml manifest files as bundle OCI image
 
-A bundle image reference is added in metadata.annotations in manifest yaml by default. 
+K8s YAML files are bundled as image, and then pushed to OCI registory. Then, it is signed with cosign. A bundle image reference is added in metadata.annotations in manifest yaml by default. 
 
 `kubectl sigstore sign -f foo.yaml --image bundle-bar:dev`
 
