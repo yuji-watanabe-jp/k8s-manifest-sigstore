@@ -19,19 +19,21 @@ package main
 import (
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	k8ssign "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/sign"
+	k8ssigstoreutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
+	k8sverify "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/verify"
 )
 
-func NewCmdSign() *cobra.Command {
+func NewCmdVerify() *cobra.Command {
 
 	var imageRef string
 	var inputDir string
 	var keyPath string
 	var output string
 	cmd := &cobra.Command{
-		Use:   "sign -f <YAMLFILE> [-i <IMAGE>]",
-		Short: "A command to sign Kubernetes YAML manifests",
+		Use:   "verify -f <YAMLFILE> [-i <IMAGE>]",
+		Short: "A command to verify Kubernetes YAML manifests",
 		RunE: func(cmd *cobra.Command, args []string) error {
 
 			err := sign(inputDir, imageRef, keyPath, output)
@@ -50,15 +52,21 @@ func NewCmdSign() *cobra.Command {
 	return cmd
 }
 
-func sign(inputDir, imageRef, keyPath, output string) error {
+func verify(inputDir, imageRef, keyPath, output string) error {
 	if output == "" {
 		output = inputDir + ".signed"
 	}
 
-	signed, err := k8ssign.Sign(inputDir, imageRef, keyPath, output)
+	yamls, err := k8ssigstoreutil.FindYAMLsInDir(inputDir)
+	if err != nil {
+		return errors.Wrap(err, "failed to get YAMLs in a dir")
+	}
+	manifest := k8ssigstoreutil.ConcatenateYAMLs(yamls)
+
+	result, err := k8sverify.Verify(manifest, imageRef, keyPath)
 	if err != nil {
 		return err
 	}
-	fmt.Println("[DEBUG] signed manifest:\n", signed)
+	fmt.Println("[DEBUG] verify result:\n", result)
 	return nil
 }

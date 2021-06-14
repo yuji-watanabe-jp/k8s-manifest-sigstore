@@ -17,34 +17,30 @@
 package sign
 
 import (
+	"bytes"
 	"context"
-	"errors"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 
+	"github.com/pkg/errors"
+
 	"github.com/google/go-containerregistry/pkg/name"
+	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
 
 	cosigncli "github.com/sigstore/cosign/cmd/cosign/cli"
 	cremote "github.com/sigstore/cosign/pkg/cosign/remote"
 )
 
-type SigningMode string
-
-const (
-	SigningModeUnknown          SigningMode = ""
-	SigningModeAnnotationDirect SigningMode = "annotation"
-	SigningModeAnnotationImage  SigningMode = "annotation-image"
-	SigningModeRegistryImage    SigningMode = "image"
-)
-
-func Sign(manifest []byte, imageRef, keyPath, output string) (string, error) {
-	if manifest == nil {
-		return "", errors.New("input YAML manifest must be non-empty")
+func Sign(inputDir, imageRef, keyPath, output string) (string, error) {
+	var inputDataBuffer bytes.Buffer
+	err := k8ssigutil.TarGzCompress(inputDir, &inputDataBuffer)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to compress an input file/dir")
 	}
 
 	if imageRef != "" {
-		err := uploadFileToRegistry(manifest, imageRef)
+		err := uploadFileToRegistry(inputDataBuffer.Bytes(), imageRef)
 		if err != nil {
 			return "", errors.New("failed to upload image with manifest")
 		}
@@ -56,7 +52,7 @@ func Sign(manifest []byte, imageRef, keyPath, output string) (string, error) {
 	return "", nil
 }
 
-func uploadFileToRegistry(manifest []byte, imageRef string) error {
+func uploadFileToRegistry(inputData []byte, imageRef string) error {
 	dir, err := ioutil.TempDir("", "kubectl-sigstore-temp-dir")
 	if err != nil {
 		return err
@@ -64,7 +60,7 @@ func uploadFileToRegistry(manifest []byte, imageRef string) error {
 	defer os.RemoveAll(dir)
 
 	fpath := filepath.Join(dir, "manifest.yaml")
-	err = ioutil.WriteFile(fpath, manifest, 0644)
+	err = ioutil.WriteFile(fpath, inputData, 0644)
 	if err != nil {
 		return err
 	}
