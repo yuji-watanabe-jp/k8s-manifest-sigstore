@@ -40,20 +40,6 @@ import (
 	"k8s.io/kubectl/pkg/util/openapi"
 )
 
-var CommonMessageMask = []string{
-	"metadata.annotations.namespace",
-	"metadata.annotations.kubectl.\"kubernetes.io/last-applied-configuration\"",
-	"metadata.managedFields",
-	"metadata.creationTimestamp",
-	"metadata.generation",
-	"metadata.annotations.deprecated.daemonset.template.generation",
-	"metadata.namespace",
-	"metadata.resourceVersion",
-	"metadata.selfLink",
-	"metadata.uid",
-	"status",
-}
-
 func DryRunCreate(objBytes []byte, namespace string) ([]byte, error) {
 	config, err := GetKubeConfig()
 	if err != nil {

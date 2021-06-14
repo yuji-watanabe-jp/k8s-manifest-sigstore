@@ -34,10 +34,6 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
-const testIShieldCRDPath = "../config/crd/bases/apis.integrityshield.io_integrityshields.yaml"
-const testIShieldCRPath = "../resources/default-ishield-cr.yaml"
-const iShieldNamespace = "integrity-shield-operator-system"
-
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
@@ -88,7 +84,7 @@ var _ = AfterSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 })
 
-var _ = Describe("Test integrity shield", func() {
+var _ = Describe("Test Kubeutil Functions", func() {
 	It("DryRunCreate Test", func() {
 		var timeout int = 10
 		Eventually(func() error {

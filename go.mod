@@ -13,6 +13,7 @@ require (
 	github.com/r3labs/diff v1.1.0
 	github.com/sigstore/cosign v0.0.0-00010101000000-000000000000
 	github.com/sigstore/sigstore v0.0.0-20210530211317-99216b8b86a6
+	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.1.3
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.20.2

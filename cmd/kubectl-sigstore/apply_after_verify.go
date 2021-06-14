@@ -17,8 +17,8 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 
@@ -26,82 +26,86 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/k8smanifest"
 	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func NewCmdVerifyResource() *cobra.Command {
+func NewCmdApplyAfterVerify() *cobra.Command {
 
 	var imageRef string
+	var filename string
 	var keyPath string
-	var namespace string
 	cmd := &cobra.Command{
-		Use:   "verify-resource -f <YAMLFILE> [-i <IMAGE>]",
+		Use:   "apply-after-verify -f <YAMLFILE> [-i <IMAGE>]",
 		Short: "A command to verify Kubernetes YAML manifests",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, kubeGetArgs := splitArgs(args)
-			if namespace != "" {
-				kubeGetArgs = append(kubeGetArgs, []string{"--namespace", namespace}...)
+			fmt.Println("[DEBUG] cmd.Args:", cmd.Args)
+			_, kubeApplyArgs := splitApplyArgs(args)
+			if filename != "" {
+				kubeApplyArgs = append(kubeApplyArgs, []string{"--filename", filename}...)
 			}
-
-			err := verifyResource(kubeGetArgs, imageRef, keyPath, namespace)
+			err := applyAfterVerify(filename, imageRef, keyPath, kubeApplyArgs)
 			if err != nil {
 				return err
 			}
 			return nil
 		},
+		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
 	}
 
+	cmd.PersistentFlags().StringVarP(&filename, "filename", "f", "", "file name which will be signed (if dir, all YAMLs inside it will be signed)")
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "image name in which you execute argocd-buidler-core")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
-	cmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "namespace of specified resource")
 
 	return cmd
 }
 
-func verifyResource(kubeGetArgs []string, imageRef, keyPath, namespace string) error {
-	kArgs := []string{"get", "--output", "json"}
-	kArgs = append(kArgs, kubeGetArgs...)
-	log.Debug("kube get args", strings.Join(kArgs, " "))
-	resultJSON, err := k8ssigutil.CmdExec("kubectl", kArgs...)
+func applyAfterVerify(filename, imageRef, keyPath string, kubeApplyArgs []string) error {
+	manifest, err := ioutil.ReadFile(filename)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return nil
-	}
-	var tmpObj unstructured.Unstructured
-	err = json.Unmarshal([]byte(resultJSON), &tmpObj)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		return nil
-	}
-	objs := []unstructured.Unstructured{}
-	if tmpObj.IsList() {
-		tmpList, _ := tmpObj.ToList()
-		objs = append(objs, tmpList.Items...)
-	} else {
-		objs = append(objs, tmpObj)
 	}
 
-	result, err := k8smanifest.VerifyResource(objs, imageRef, keyPath)
+	annotations := k8ssigutil.GetAnnotationsInYAML(manifest)
+	annoImageRef, annoImageRefFound := annotations[k8smanifest.ImageRefAnnotationKey]
+	if imageRef == "" && annoImageRefFound {
+		imageRef = annoImageRef
+	}
+	log.Debug("annotations", annotations)
+	log.Debug("imageRef", imageRef)
+
+	result, err := k8smanifest.Verify(manifest, imageRef, keyPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return nil
 	}
 	if result.Verified {
 		log.Info("verify result:", result)
+		kArgs := []string{"apply"}
+		kArgs = append(kArgs, kubeApplyArgs...)
+		log.Debug("kube apply args", strings.Join(kArgs, " "))
+		applyResult, err := k8ssigutil.CmdExec("kubectl", kArgs...)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			return nil
+		}
+		fmt.Println(applyResult)
 	} else {
 		log.Error("verify result:", result)
 	}
+
 	return nil
 }
 
-func splitArgs(args []string) ([]string, []string) {
+func splitApplyArgs(args []string) ([]string, []string) {
 	mainArgs := []string{}
 	kubectlArgs := []string{}
 	mainArgsCondition := map[string]bool{
-		"--image": true,
-		"-i":      true,
-		"--key":   true,
-		"-k":      true,
+		"--filename": true,
+		"-f":         true,
+		"--image":    true,
+		"-i":         true,
+		"--key":      true,
+		"-k":         true,
 	}
 	skipIndex := map[int]bool{}
 	for i, s := range args {

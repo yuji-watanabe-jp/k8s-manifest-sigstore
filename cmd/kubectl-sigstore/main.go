@@ -18,12 +18,17 @@ package main
 
 import (
 	"os"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func init() {
 	rootCmd.AddCommand(NewCmdSign())
 	rootCmd.AddCommand(NewCmdVerify())
 	rootCmd.AddCommand(NewCmdVerifyResource())
+	rootCmd.AddCommand(NewCmdApplyAfterVerify())
+
+	log.SetLevel(log.InfoLevel)
 }
 
 func main() {

@@ -14,17 +14,18 @@
 // limitations under the License.
 //
 
-package verify
+package k8smanifest
 
 import (
-	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"strings"
 
+	"github.com/ghodss/yaml"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -37,9 +38,23 @@ import (
 	"github.com/sigstore/sigstore/pkg/signature/payload"
 )
 
+var EmbeddedAnnotationMaskKeys = []string{
+	fmt.Sprintf("metadata.annotations.\"%s\"", ImageRefAnnotationKey),
+	fmt.Sprintf("metadata.annotations.\"%s\"", SignatureAnnotationKey),
+	fmt.Sprintf("metadata.annotations.\"%s\"", CertificateAnnotationKey),
+	fmt.Sprintf("metadata.annotations.\"%s\"", MessageAnnotationKey),
+	fmt.Sprintf("metadata.annotations.\"%s\"", BundleAnnotationKey),
+}
+
 type VerifyResult struct {
-	Verfied bool
-	Signer  string
+	Verified bool                `json:"verified"`
+	Signer   string              `json:"signer"`
+	Diff     *mapnode.DiffResult `json:"diff"`
+}
+
+func (r *VerifyResult) String() string {
+	rB, _ := json.Marshal(r)
+	return string(rB)
 }
 
 func Verify(manifest []byte, imageRef, keyPath string) (*VerifyResult, error) {
@@ -56,12 +71,16 @@ func Verify(manifest []byte, imageRef, keyPath string) (*VerifyResult, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to pull image")
 		}
-		ok, err := matchManifest(manifest, image)
+		ok, tmpDiff, err := matchManifest(manifest, image)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to match manifest")
 		}
 		if !ok {
-			return nil, errors.New("failed to match manifest with image")
+			return &VerifyResult{
+				Verified: false,
+				Signer:   "",
+				Diff:     tmpDiff,
+			}, nil
 		}
 
 		verified, signerName, err = imageVerify(imageRef, &keyPath)
@@ -71,8 +90,8 @@ func Verify(manifest []byte, imageRef, keyPath string) (*VerifyResult, error) {
 	}
 
 	return &VerifyResult{
-		Verfied: verified,
-		Signer:  signerName,
+		Verified: verified,
+		Signer:   signerName,
 	}, nil
 
 }
@@ -121,35 +140,40 @@ func imageVerify(imageRef string, pubkeyPath *string) (bool, string, error) {
 	return true, signerName, nil
 }
 
-func matchManifest(manifest []byte, image v1.Image) (bool, error) {
+func matchManifest(manifest []byte, image v1.Image) (bool, *mapnode.DiffResult, error) {
 	concatYAMLFromImage, err := k8ssigutil.GenerateConcatYAMLsFromImage(image)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	fmt.Println("[DEBUG] manifest:", string(manifest))
-	fmt.Println("[DEBUG] manifest in image:", string(concatYAMLFromImage))
+	log.Debug("manifest:", string(manifest))
+	log.Debug("manifest in image:", string(concatYAMLFromImage))
 	inputFileNode, err := mapnode.NewFromYamlBytes(manifest)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	yamls := k8ssigutil.SplitConcatYAMLs(concatYAMLFromImage)
-	sumErr := []string{}
-	for _, yaml := range yamls {
-		if bytes.Equal(manifest, yaml) {
-			return true, nil
-		}
-		yamlInImageNode, err := mapnode.NewFromYamlBytes(yaml)
-		if err != nil {
-			sumErr = append(sumErr, err.Error())
-		}
-		diff := inputFileNode.Diff(yamlInImageNode)
-		if diff == nil || diff.Size() == 0 {
-			return true, nil
-		}
-	}
-	if len(sumErr) > 0 {
-		return false, errors.New(fmt.Sprintf("failed to find the input file in image; %s", strings.Join(sumErr, "; ")))
-	}
+	maskedInputNode := inputFileNode.Mask(EmbeddedAnnotationMaskKeys)
 
-	return false, errors.New("failed to find the input file in image")
+	var obj unstructured.Unstructured
+	err = yaml.Unmarshal(manifest, &obj)
+	if err != nil {
+		return false, nil, err
+	}
+	apiVersion := obj.GetAPIVersion()
+	kind := obj.GetKind()
+	name := obj.GetName()
+	namespace := obj.GetNamespace()
+	found, foundBytes := k8ssigutil.FindSingleYaml(concatYAMLFromImage, apiVersion, kind, name, namespace)
+	if !found {
+		return false, nil, errors.New("failed to find the input file in image")
+	}
+	manifestNode, err := mapnode.NewFromYamlBytes(foundBytes)
+	if err != nil {
+		return false, nil, err
+	}
+	maskedManifestNode := manifestNode.Mask(EmbeddedAnnotationMaskKeys)
+	diff := maskedInputNode.Diff(maskedManifestNode)
+	if diff == nil || diff.Size() == 0 {
+		return true, nil, nil
+	}
+	return false, diff, nil
 }

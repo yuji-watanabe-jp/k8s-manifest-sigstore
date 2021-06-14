@@ -19,9 +19,12 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	k8sverify "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/verify"
+	"github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/k8smanifest"
+	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
 )
 
 func NewCmdVerify() *cobra.Command {
@@ -52,13 +55,28 @@ func NewCmdVerify() *cobra.Command {
 func verify(filename, imageRef, keyPath string) error {
 	manifest, err := ioutil.ReadFile(filename)
 	if err != nil {
-		return err
+		fmt.Fprintln(os.Stderr, err.Error())
+		return nil
 	}
 
-	result, err := k8sverify.Verify(manifest, imageRef, keyPath)
-	if err != nil {
-		return err
+	annotations := k8ssigutil.GetAnnotationsInYAML(manifest)
+	annoImageRef, annoImageRefFound := annotations[k8smanifest.ImageRefAnnotationKey]
+	if imageRef == "" && annoImageRefFound {
+		imageRef = annoImageRef
 	}
-	fmt.Println("[DEBUG] verify result:\n", result)
+	log.Debug("annotations", annotations)
+	log.Debug("imageRef", imageRef)
+
+	result, err := k8smanifest.Verify(manifest, imageRef, keyPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return nil
+	}
+	if result.Verified {
+		log.Info("verify result:", result)
+	} else {
+		log.Error("verify result:", result)
+	}
+
 	return nil
 }

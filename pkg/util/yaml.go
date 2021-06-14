@@ -137,6 +137,16 @@ func SplitConcatYAMLs(yaml []byte) [][]byte {
 	return yamls
 }
 
+func GetAnnotationsInYAML(yamlBytes []byte) map[string]string {
+	emptyMap := map[string]string{}
+	var obj unstructured.Unstructured
+	err := yaml.Unmarshal(yamlBytes, &obj)
+	if err != nil {
+		return emptyMap
+	}
+	return obj.GetAnnotations()
+}
+
 func parseResourceInfo(concatYamlBytes []byte) []ResourceInfo {
 	yamls := SplitConcatYAMLs(concatYamlBytes)
 	resources := []ResourceInfo{}

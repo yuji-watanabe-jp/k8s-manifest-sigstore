@@ -18,9 +18,11 @@ package main
 
 import (
 	"fmt"
+	"os"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	k8ssign "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/sign"
+	"github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/k8smanifest"
 )
 
 func NewCmdSign() *cobra.Command {
@@ -29,12 +31,13 @@ func NewCmdSign() *cobra.Command {
 	var inputDir string
 	var keyPath string
 	var output string
+	var updateAnnotation bool
 	cmd := &cobra.Command{
 		Use:   "sign -f <YAMLFILE> [-i <IMAGE>]",
 		Short: "A command to sign Kubernetes YAML manifests",
 		RunE: func(cmd *cobra.Command, args []string) error {
 
-			err := sign(inputDir, imageRef, keyPath, output)
+			err := sign(inputDir, imageRef, keyPath, output, updateAnnotation)
 			if err != nil {
 				return err
 			}
@@ -46,19 +49,21 @@ func NewCmdSign() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "image name in which you execute argocd-buidler-core")
 	cmd.PersistentFlags().StringVarP(&output, "output", "o", "", "output file name (if empty, use `<input>.signed`)")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
+	cmd.PersistentFlags().BoolVarP(&updateAnnotation, "annotation", "a", true, "whether to update annotation and generate signed yaml file")
 
 	return cmd
 }
 
-func sign(inputDir, imageRef, keyPath, output string) error {
+func sign(inputDir, imageRef, keyPath, output string, updateAnnotation bool) error {
 	if output == "" {
 		output = inputDir + ".signed"
 	}
 
-	signed, err := k8ssign.Sign(inputDir, imageRef, keyPath, output)
+	_, err := k8smanifest.Sign(inputDir, imageRef, keyPath, output, updateAnnotation)
 	if err != nil {
-		return err
+		fmt.Fprintln(os.Stderr, err.Error())
+		return nil
 	}
-	fmt.Println("[DEBUG] signed manifest:\n", signed)
+	log.Info("signed manifest generated at", output)
 	return nil
 }
