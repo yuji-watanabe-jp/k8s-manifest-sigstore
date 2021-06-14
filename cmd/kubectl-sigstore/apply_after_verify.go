@@ -37,8 +37,8 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 		Use:   "apply-after-verify -f <YAMLFILE> [-i <IMAGE>]",
 		Short: "A command to verify Kubernetes YAML manifests",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("[DEBUG] cmd.Args:", cmd.Args)
-			_, kubeApplyArgs := splitApplyArgs(args)
+			fullArgs := getOriginalFullArgs("apply-after-verify") // TODO: find a better way get all args
+			_, kubeApplyArgs := splitApplyArgs(fullArgs)
 			if filename != "" {
 				kubeApplyArgs = append(kubeApplyArgs, []string{"--filename", filename}...)
 			}
@@ -52,7 +52,7 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVarP(&filename, "filename", "f", "", "file name which will be signed (if dir, all YAMLs inside it will be signed)")
-	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "image name in which you execute argocd-buidler-core")
+	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "image ref which bundles manifest YAMLs")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
 
 	return cmd
@@ -94,6 +94,21 @@ func applyAfterVerify(filename, imageRef, keyPath string, kubeApplyArgs []string
 	}
 
 	return nil
+}
+
+func getOriginalFullArgs(separator string) []string {
+	afterSeparator := false
+	args := []string{}
+	for _, arg := range os.Args {
+		if afterSeparator {
+			args = append(args, arg)
+		}
+
+		if arg == separator {
+			afterSeparator = true
+		}
+	}
+	return args
 }
 
 func splitApplyArgs(args []string) ([]string, []string) {
