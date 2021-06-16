@@ -83,7 +83,7 @@ func VerifyResource(objs []unstructured.Unstructured, imageRef, keyPath string) 
 					Verified: false,
 					Signer:   "",
 					Diff:     tmpDiff,
-				}, errors.New("failed to match resource with manifest")
+				}, nil
 			}
 			verified, signerName, err = imageVerify(objImageRef, &keyPath)
 			if err != nil {
