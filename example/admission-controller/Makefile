@@ -55,6 +55,6 @@ deploy: gen-certs
 	kustomize build config/default | kubectl apply -f -
 
 undeploy:
-	@echo deploying resources
+	@echo removing resources
 	cd config/default && kustomize edit set image k8ssigstoremanifest=$(NAME):$(VERSION)
 	kustomize build config/default | kubectl delete -f -

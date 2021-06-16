@@ -1,9 +1,0 @@
-apiVersion: v1
-data:
-  key1: val1
-  key2: val2
-kind: ConfigMap
-metadata:
-  annotations:
-    cosign.sigstore.dev/imageRef: gcr.io/sigstore-test-project/sample-configmap-manifest:dev2
-  name: sample-cm
