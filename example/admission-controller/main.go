@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 
 	log "github.com/sirupsen/logrus"
@@ -71,6 +72,13 @@ func (h *k8sManifestHandler) Handle(ctx context.Context, req admission.Request) 
 		return admission.Allowed("error but allow for development")
 	}
 	log.Info("[DEBUG] result:", result)
+	if !result.Verified {
+		message := "no signature found"
+		if result.Diff != nil && result.Diff.Size() > 0 {
+			message = fmt.Sprintf("diff found: %s", result.Diff.String())
+		}
+		return admission.Denied(message)
+	}
 	return admission.Allowed("no checks here!")
 }
 
