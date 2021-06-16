@@ -47,11 +47,11 @@ Inserting annotation can be disabled by adding `--annotation=false` option. (If 
 
 ### Verify a k8s yaml manifest file
 
-`kubectl sigstore verify foo.yaml`
+`kubectl sigstore verify -f foo.yaml`
 
 An image reference can be supplied with command option.
 
-`kubectl sigstore verify foo.yaml --image bundle-bar:dev`
+`kubectl sigstore verify -f foo.yaml --image bundle-bar:dev`
 
 ### Create resource with a k8s yaml manifest file after verifying signature
 

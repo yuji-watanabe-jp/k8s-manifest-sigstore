@@ -13,6 +13,7 @@ require (
 
 replace (
 	github.com/sigstore/cosign => github.com/sigstore/cosign v0.4.1-0.20210602105506-5cb21aa7fbf9
+	github.com/yuji-watanabe-jp/k8s-manifest-sigstore => ../../
 	github.com/yuji-watanabe-jp/k8s-manifest-sigstore/example/admission-controller => ./
 	k8s.io/api => k8s.io/api v0.19.0
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.19.0

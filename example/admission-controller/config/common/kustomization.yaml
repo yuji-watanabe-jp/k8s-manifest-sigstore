@@ -4,8 +4,3 @@ resources:
 
 configurations:
 - kustomizeconfig.yaml
-
-images:
-- name: k8s-manifest-sigstore-image
-  newName: localhost:5000/k8s-manifest-sigstore
-  newTag: dev

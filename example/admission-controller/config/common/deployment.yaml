@@ -19,7 +19,7 @@ spec:
       containers:
       - command:
         - /myapp/k8s-manifest-sigstore
-        image: k8s-manifest-sigstore-image:latest
+        image: k8s-manifest-sigstore
         imagePullPolicy: Always
         name: manager
         ports:
