@@ -1,5 +1,7 @@
 # Example k8s admission controller for k8s manifest verification
 
+This is small example to show how to implement admission controller for verifying k8s manifest with sigstore signing. The original design comes from Integrity Shield project (https://github.com/IBM/integrity-enforcer) which includes more advanced capabilities.
+
 ### Setup
 
 You can setup the admission controller just by the following commands.
