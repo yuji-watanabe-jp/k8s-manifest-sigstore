@@ -2,7 +2,7 @@
 
 > :warning: Still under developement, not ready for production use yet!
 
-This kubectl subscommand plugin enables both developper to sign k8s manifest yaml files and application owner to verify the origin of configurations and the integrity of deployed manifests on cluster. 
+This kubectl subscommand plugin enables developer to sign k8s manifest yaml files and deployment teams  to verify the authenticity of configurations.   Not only is this possible for developers to sign and verify, but  the integrity of deployed manifests can be confirmed on a k8s cluster. 
 
 ## Installation
 
