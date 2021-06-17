@@ -10,4 +10,4 @@ ignoreFields:
   - data.key2
 
 signers:
-- hirokuni.kitahara@gmail.com
+- sample-signer@gmail.com
