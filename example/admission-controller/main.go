@@ -24,6 +24,7 @@ import (
 	"os"
 
 	log "github.com/sirupsen/logrus"
+	k8smnfconfig "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/example/admission-controller/pkg/config"
 	"github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/k8smanifest"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,11 +47,22 @@ var (
 )
 
 const tlsDir = `/run/secrets/tls`
+const podNamespaceEnvKey = "POD_NAMESPACE"
+const defaultPodNamespace = "k8s-manifest-sigstore"
+const defaultManifestIntegrityConfigMapName = "k8s-manifest-integrity-config"
 
 // +kubebuilder:webhook:path=/validate-resource,mutating=false,failurePolicy=ignore,sideEffects=NoneOnDryRun,groups=*,resources=*,verbs=create;update,versions=*,name=k8smanifest.sigstore.dev,admissionReviewVersions={v1,v1beta1}
 
 type k8sManifestHandler struct {
 	Client client.Client
+}
+
+func getPodNamespace() string {
+	ns := os.Getenv(podNamespaceEnvKey)
+	if ns == "" {
+		ns = defaultPodNamespace
+	}
+	return ns
 }
 
 func (h *k8sManifestHandler) Handle(ctx context.Context, req admission.Request) admission.Response {
@@ -63,23 +75,68 @@ func (h *k8sManifestHandler) Handle(ctx context.Context, req admission.Request) 
 		log.Errorf("failed to Unmarshal a requested object into %T; %s", obj, err.Error())
 		return admission.Allowed("error but allow for development")
 	}
-	objList := []unstructured.Unstructured{obj}
-	imageRef := ""
-	keyPath := ""
-	result, err := k8smanifest.VerifyResource(objList, imageRef, keyPath)
+
+	configNamespace := getPodNamespace()
+	configName := defaultManifestIntegrityConfigMapName
+	config, err := k8smnfconfig.LoadConfig(configNamespace, configName)
 	if err != nil {
-		log.Errorf("failed to check a requested resource; %s", err.Error())
+		log.Errorf("failed to load manifest integrity config; %s", err.Error())
 		return admission.Allowed("error but allow for development")
 	}
-	log.Info("[DEBUG] result:", result)
-	if !result.Verified {
-		message := "no signature found"
-		if result.Diff != nil && result.Diff.Size() > 0 {
-			message = fmt.Sprintf("diff found: %s", result.Diff.String())
+	if config == nil {
+		config = &k8smnfconfig.ManifestIntegrityConfig{}
+	}
+
+	skipUserMatched := config.SkipUsers.Match(obj, req.AdmissionRequest.UserInfo.Username)
+	inScopeObjMatched := config.InScopeObjects.Match(obj)
+
+	allow := true
+	message := ""
+	if skipUserMatched {
+		allow = true
+		message = "ignore user config matched"
+	} else if !inScopeObjMatched {
+		allow = true
+		message = "this resource is not in scope of verification"
+	} else {
+		imageRef := config.ImageRef
+		keyPath := ""
+		if config.KeySecertName != "" {
+			keyPath, _ = config.LoadKeySecret()
 		}
+		vo := &(config.VerifyOption)
+		result, err := k8smanifest.VerifyResource(obj, imageRef, keyPath, vo)
+		if err != nil {
+			log.Errorf("failed to check a requested resource; %s", err.Error())
+			return admission.Allowed("error but allow for development")
+		}
+		if result.InScope {
+			if result.Verified {
+				allow = true
+				message = fmt.Sprintf("singed by a valid signer: %s", result.Signer)
+			} else {
+				allow = false
+				message = "no signature found"
+				if result.Diff != nil && result.Diff.Size() > 0 {
+					message = fmt.Sprintf("diff found: %s", result.Diff.String())
+				}
+				if result.Signer != "" {
+					message = fmt.Sprintf("signer config not matched, this is signed by %s", result.Signer)
+				}
+			}
+		} else {
+			allow = true
+			message = "not protected"
+		}
+	}
+
+	log.Info("[DEBUG] result:", message)
+
+	if allow {
+		return admission.Allowed(message)
+	} else {
 		return admission.Denied(message)
 	}
-	return admission.Allowed("no checks here!")
 }
 
 func init() {
