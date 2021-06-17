@@ -51,55 +51,90 @@ var CommonResourceMaskKeys = []string{
 	"status",
 }
 
-func VerifyResource(objs []unstructured.Unstructured, imageRef, keyPath string) (*VerifyResult, error) {
+type VerifyResourceResult struct {
+	Object   unstructured.Unstructured `json:"-"`
+	Verified bool                      `json:"verified"`
+	InScope  bool                      `json:"inScope"`
+	Signer   string                    `json:"signer"`
+	Diff     *mapnode.DiffResult       `json:"diff"`
+}
+
+func (r *VerifyResourceResult) String() string {
+	rB, _ := json.Marshal(r)
+	return string(rB)
+}
+
+func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo *VerifyOption) (*VerifyResourceResult, error) {
 
 	verified := false
+	inScope := true // assume that input resource is in scope in verify-resource
 	signerName := ""
 
-	for _, obj := range objs {
-		objImageRef := imageRef
-
-		// if imageRef is not specified in args and it is found in object annotations, use the found image ref
-		if objImageRef == "" {
-			annotations := obj.GetAnnotations()
-			annoImageRef, found := annotations[ImageRefAnnotationKey]
-			if found {
-				objImageRef = annoImageRef
-			}
+	// if imageRef is not specified in args and it is found in object annotations, use the found image ref
+	if imageRef == "" {
+		annotations := obj.GetAnnotations()
+		annoImageRef, found := annotations[ImageRefAnnotationKey]
+		if found {
+			imageRef = annoImageRef
 		}
+	}
 
-		// TODO: support directly attached annotation sigantures
-		if objImageRef != "" {
-			image, err := k8ssigutil.PullImage(objImageRef)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to pull image")
-			}
-			ok, tmpDiff, err := matchResourceWithManifest(obj, image)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to match resource with manifest")
-			}
-			if !ok {
-				return &VerifyResult{
-					Verified: false,
-					Signer:   "",
-					Diff:     tmpDiff,
-				}, nil
-			}
-			verified, signerName, err = imageVerify(objImageRef, &keyPath)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to verify image")
+	// check if the resource should be skipped or not
+	if vo != nil && len(vo.SkipObjects) > 0 {
+		if vo.SkipObjects.Match(obj) {
+			inScope = false
+		}
+	}
+
+	// get ignore fields configuration for this resource if found
+	ignoreFields := []string{}
+	if vo != nil {
+		if ok, fields := vo.IgnoreFields.Match(obj); ok {
+			ignoreFields = fields
+		}
+	}
+
+	// do manifest matching and signature verification
+	// TODO: support directly attached annotation sigantures
+	if imageRef != "" {
+		image, err := k8ssigutil.PullImage(imageRef)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to pull image")
+		}
+		ok, tmpDiff, err := matchResourceWithManifest(obj, image, ignoreFields)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to match resource with manifest")
+		}
+		if !ok {
+			return &VerifyResourceResult{
+				Object:   obj,
+				Verified: false,
+				InScope:  inScope,
+				Signer:   "",
+				Diff:     tmpDiff,
+			}, nil
+		}
+		verified, signerName, err = imageVerify(imageRef, &keyPath)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to verify image")
+		}
+		if verified {
+			if !vo.Signers.Match(signerName) {
+				verified = false
 			}
 		}
 	}
 
-	return &VerifyResult{
+	return &VerifyResourceResult{
+		Object:   obj,
 		Verified: verified,
+		InScope:  inScope,
 		Signer:   signerName,
 	}, nil
 
 }
 
-func matchResourceWithManifest(obj unstructured.Unstructured, image v1.Image) (bool, *mapnode.DiffResult, error) {
+func matchResourceWithManifest(obj unstructured.Unstructured, image v1.Image, ignoreFields []string) (bool, *mapnode.DiffResult, error) {
 
 	apiVersion := obj.GetAPIVersion()
 	kind := obj.GetKind()
@@ -157,7 +192,17 @@ func matchResourceWithManifest(obj unstructured.Unstructured, image v1.Image) (b
 	// if matched {
 	// 	return true, nil
 	// }
-	return false, diff, nil
+
+	// filter out ignoreFields
+	if diff != nil && len(ignoreFields) > 0 {
+		_, diff, _ = diff.Filter(ignoreFields)
+	}
+	if diff == nil || diff.Size() == 0 {
+		matched = true
+		diff = nil
+	}
+
+	return matched, diff, nil
 }
 
 func directMatch(objBytes, manifestBytes []byte) (bool, *mapnode.DiffResult, error) {
