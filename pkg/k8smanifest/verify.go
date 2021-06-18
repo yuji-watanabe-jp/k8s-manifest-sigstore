@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/google/go-containerregistry/pkg/name"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
 	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
 	mapnode "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util/mapnode"
 
@@ -67,11 +66,11 @@ func Verify(manifest []byte, imageRef, keyPath string) (*VerifyResult, error) {
 
 	// TODO: support directly attached annotation sigantures
 	if imageRef != "" {
-		image, err := k8ssigutil.PullImage(imageRef)
+		manifestInImage, err := k8ssigutil.GetYAMLInImageWithCache(imageRef)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to pull image")
+			return nil, errors.Wrap(err, "failed to get YAML manifest from image")
 		}
-		ok, tmpDiff, err := matchManifest(manifest, image)
+		ok, tmpDiff, err := matchManifest(manifest, manifestInImage)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to match manifest")
 		}
@@ -140,13 +139,9 @@ func imageVerify(imageRef string, pubkeyPath *string) (bool, string, error) {
 	return true, signerName, nil
 }
 
-func matchManifest(manifest []byte, image v1.Image) (bool, *mapnode.DiffResult, error) {
-	concatYAMLFromImage, err := k8ssigutil.GenerateConcatYAMLsFromImage(image)
-	if err != nil {
-		return false, nil, err
-	}
+func matchManifest(manifest, manifestInImage []byte) (bool, *mapnode.DiffResult, error) {
 	log.Debug("manifest:", string(manifest))
-	log.Debug("manifest in image:", string(concatYAMLFromImage))
+	log.Debug("manifest in image:", string(manifestInImage))
 	inputFileNode, err := mapnode.NewFromYamlBytes(manifest)
 	if err != nil {
 		return false, nil, err
@@ -162,7 +157,7 @@ func matchManifest(manifest []byte, image v1.Image) (bool, *mapnode.DiffResult, 
 	kind := obj.GetKind()
 	name := obj.GetName()
 	namespace := obj.GetNamespace()
-	found, foundBytes := k8ssigutil.FindSingleYaml(concatYAMLFromImage, apiVersion, kind, name, namespace)
+	found, foundBytes := k8ssigutil.FindSingleYaml(manifestInImage, apiVersion, kind, name, namespace)
 	if !found {
 		return false, nil, errors.New("failed to find the input file in image")
 	}
