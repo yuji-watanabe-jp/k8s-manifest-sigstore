@@ -33,7 +33,7 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 	var imageRef string
 	var filename string
 	var keyPath string
-	var useCache bool
+	var disableCache bool
 	cmd := &cobra.Command{
 		Use:   "apply-after-verify -f <YAMLFILE> [-i <IMAGE>]",
 		Short: "A command to apply Kubernetes YAML manifests only after verifying signature",
@@ -42,6 +42,10 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 			_, kubeApplyArgs := splitApplyArgs(fullArgs)
 			if filename != "" {
 				kubeApplyArgs = append(kubeApplyArgs, []string{"--filename", filename}...)
+			}
+			useCache := true
+			if disableCache {
+				useCache = false
 			}
 			err := applyAfterVerify(filename, imageRef, keyPath, useCache, kubeApplyArgs)
 			if err != nil {
@@ -55,7 +59,7 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&filename, "filename", "f", "", "file name which will be signed (if dir, all YAMLs inside it will be signed)")
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
-	cmd.PersistentFlags().BoolVar(&useCache, "cache", true, "whether to use cache for pulling & verifying image (default to true)")
+	cmd.PersistentFlags().BoolVar(&disableCache, "disable-cache", false, "whether to use cache for pulling & verifying image (default to true)")
 
 	return cmd
 }
@@ -116,7 +120,10 @@ func getOriginalFullArgs(separator string) []string {
 func splitApplyArgs(args []string) ([]string, []string) {
 	mainArgs := []string{}
 	kubectlArgs := []string{}
-	mainArgsCondition := map[string]bool{
+	mainArgsConditionSingle := map[string]bool{
+		"--disable-cache": true,
+	}
+	mainArgsConditionDouble := map[string]bool{
 		"--filename": true,
 		"-f":         true,
 		"--image":    true,
@@ -129,7 +136,9 @@ func splitApplyArgs(args []string) ([]string, []string) {
 		if skipIndex[i] {
 			continue
 		}
-		if mainArgsCondition[s] {
+		if mainArgsConditionSingle[s] {
+			mainArgs = append(mainArgs, args[i])
+		} else if mainArgsConditionDouble[s] {
 			mainArgs = append(mainArgs, args[i])
 			mainArgs = append(mainArgs, args[i+1])
 			skipIndex[i+1] = true
