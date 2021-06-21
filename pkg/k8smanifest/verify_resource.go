@@ -24,6 +24,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	k8scosign "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/cosign"
 	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
 	kubeutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util/kubeutil"
 	mapnode "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util/mapnode"
@@ -63,7 +64,7 @@ func (r *VerifyResourceResult) String() string {
 	return string(rB)
 }
 
-func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo *VerifyOption) (*VerifyResourceResult, error) {
+func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo *VerifyOption, useCache bool) (*VerifyResourceResult, error) {
 
 	verified := false
 	inScope := true // assume that input resource is in scope in verify-resource
@@ -96,10 +97,37 @@ func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo 
 	// do manifest matching and signature verification
 	// TODO: support directly attached annotation sigantures
 	if imageRef != "" {
-		manifestInImage, err := k8ssigutil.GetYAMLInImageWithCache(imageRef)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to get YAML manifest from image")
+		var manifestInImage []byte
+		manifestLoadedFromCache := false
+		var err error
+		if useCache {
+			ok := false
+			manifestInImage, ok, err = k8ssigutil.GetYAMLManifestCache(imageRef)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to get YAML manifest cache")
+			}
+			if ok {
+				manifestLoadedFromCache = true
+			}
 		}
+
+		if !manifestLoadedFromCache {
+			image, err := k8ssigutil.PullImage(imageRef)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to pull image")
+			}
+			manifestInImage, err = k8ssigutil.GenerateConcatYAMLsFromImage(image)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to get YAML manifest in image")
+			}
+		}
+		if useCache && !manifestLoadedFromCache {
+			err := k8ssigutil.SetYAMLManifestCache(imageRef, manifestInImage)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to save YAML manifest cache")
+			}
+		}
+
 		ok, tmpDiff, err := matchResourceWithManifest(obj, manifestInImage, ignoreFields)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to match resource with manifest")
@@ -113,9 +141,30 @@ func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo 
 				Diff:     tmpDiff,
 			}, nil
 		}
-		verified, signerName, err = imageVerify(imageRef, &keyPath)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to verify image")
+
+		imageVerifyLoadedFromCache := false
+		if useCache {
+			ok := false
+			verified, signerName, ok, err = k8ssigutil.GetImageVerifyResultCache(imageRef, keyPath)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to get image verify result cache")
+			}
+			if ok {
+				imageVerifyLoadedFromCache = true
+			}
+		}
+
+		if !imageVerifyLoadedFromCache {
+			verified, signerName, err = k8scosign.VerifyImage(imageRef, &keyPath)
+			if err != nil {
+				return nil, errors.Wrap(err, "error occurred during image verification")
+			}
+		}
+		if useCache && !imageVerifyLoadedFromCache {
+			err := k8ssigutil.SetImageVerifyResultCache(imageRef, keyPath, verified, signerName)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to save image verify result cache")
+			}
 		}
 		if verified {
 			if !vo.Signers.Match(signerName) {

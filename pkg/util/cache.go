@@ -19,6 +19,7 @@ package util
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -37,22 +38,42 @@ type manifestCache struct {
 	CreationTimestamp int64  `json:"creationTimestamp"`
 }
 
-func cacheYAML(imageRef string, yamlBytes []byte) error {
-	fpath := generateImageRefCachePath(imageRef)
+type imageVerifyCache struct {
+	Verified          bool   `json:"verified"`
+	SignerName        string `json:"signerName"`
+	CreationTimestamp int64  `json:"creationTimestamp"`
+}
+
+func cacheData(fpath string, data []byte) error {
 	fdir := filepath.Dir(fpath)
 	err := os.MkdirAll(fdir, 0777)
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(fpath, yamlBytes, 0777)
+	err = ioutil.WriteFile(fpath, data, 0777)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func GetYAMLInImageWithCache(imageRef string) ([]byte, error) {
-	cachePath := generateImageRefCachePath(imageRef)
+func SetYAMLManifestCache(imageRef string, yamlBytes []byte) error {
+	c := &manifestCache{
+		Data:              yamlBytes,
+		CreationTimestamp: time.Now().UTC().Unix(),
+	}
+	cB, _ := json.Marshal(c)
+	gCB := gzipCompress(cB)
+	fpath := generateYAMLCachePath(imageRef)
+	err := cacheData(fpath, gCB)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func GetYAMLManifestCache(imageRef string) ([]byte, bool, error) {
+	cachePath := generateYAMLCachePath(imageRef)
 	if exists(cachePath) {
 		var err error
 		var cacheBytes []byte
@@ -64,7 +85,7 @@ func GetYAMLInImageWithCache(imageRef string) ([]byte, error) {
 			if err == nil {
 				pullTime := time.Unix(c.CreationTimestamp, 0)
 				if time.Now().UTC().Sub(pullTime).Seconds() < cacheTTLSeconds {
-					return c.Data, nil
+					return c.Data, true, nil
 				}
 			}
 		}
@@ -72,26 +93,49 @@ func GetYAMLInImageWithCache(imageRef string) ([]byte, error) {
 			fmt.Println("[DEBUG] err; ", err)
 		}
 	}
-	img, err := PullImage(imageRef)
-	if err != nil {
-		return nil, err
-	}
-	pullTimestamp := time.Now().UTC().Unix()
-	concatYaml, err := GenerateConcatYAMLsFromImage(img)
-	if err != nil {
-		return nil, err
-	}
-	c := &manifestCache{
-		Data:              concatYaml,
-		CreationTimestamp: pullTimestamp,
+
+	return nil, false, nil
+}
+
+func SetImageVerifyResultCache(imageRef, keyPath string, verified bool, signerName string) error {
+	c := &imageVerifyCache{
+		Verified:          verified,
+		SignerName:        signerName,
+		CreationTimestamp: time.Now().UTC().Unix(),
 	}
 	cB, _ := json.Marshal(c)
 	gCB := gzipCompress(cB)
-	err = cacheYAML(imageRef, gCB)
+	fpath := generateImageVerifyCachePath(imageRef, keyPath)
+	err := cacheData(fpath, gCB)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return concatYaml, nil
+	return nil
+}
+
+func GetImageVerifyResultCache(imageRef, keyPath string) (bool, string, bool, error) {
+	cachePath := generateImageVerifyCachePath(imageRef, keyPath)
+	if exists(cachePath) {
+		var err error
+		var cacheBytes []byte
+		gzCacheBytes, err := ioutil.ReadFile(cachePath)
+		cacheBytes = gzipDecompress(gzCacheBytes)
+		if err == nil {
+			var c *imageVerifyCache
+			err = json.Unmarshal(cacheBytes, &c)
+			if err == nil {
+				pullTime := time.Unix(c.CreationTimestamp, 0)
+				if time.Now().UTC().Sub(pullTime).Seconds() < cacheTTLSeconds {
+					return c.Verified, c.SignerName, true, nil
+				}
+			}
+		}
+		if err != nil {
+			fmt.Println("[DEBUG] err; ", err)
+		}
+	}
+
+	return false, "", false, nil
 }
 
 func exists(filename string) bool {
@@ -99,9 +143,16 @@ func exists(filename string) bool {
 	return err == nil
 }
 
-func generateImageRefCachePath(imageRef string) string {
+func generateYAMLCachePath(imageRef string) string {
 	imageRefString := normalizeImageRef(imageRef)
-	return filepath.Join(cacheDirName, imageRefString)
+	return filepath.Join(cacheDirName, "yaml", imageRefString)
+}
+
+func generateImageVerifyCachePath(imageRef, keyPath string) string {
+	imageRefString := normalizeImageRef(imageRef)
+	keyPathHash := md5.Sum([]byte(keyPath))
+	keyPathHashStr := fmt.Sprintf("%x", keyPathHash)
+	return filepath.Join(cacheDirName, "verify", imageRefString, keyPathHashStr)
 }
 
 func normalizeImageRef(imageRef string) string {

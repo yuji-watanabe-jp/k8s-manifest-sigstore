@@ -18,7 +18,6 @@ package k8smanifest
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -28,10 +27,10 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	k8scosign "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/cosign"
 	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
 	"github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util/mapnode"
 
-	cosigncli "github.com/sigstore/cosign/cmd/cosign/cli"
 	cremote "github.com/sigstore/cosign/pkg/cosign/remote"
 )
 
@@ -58,7 +57,7 @@ func Sign(inputDir, imageRef, keyPath, output string, updateAnnotation bool) ([]
 			return nil, errors.Wrap(err, "failed to upload image with manifest")
 		}
 		// sign the image
-		err = signImage(imageRef, keyPath)
+		err = k8scosign.SignImage(imageRef, keyPath)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to sign image")
 		}
@@ -108,30 +107,6 @@ func uploadFileToRegistry(inputData []byte, imageRef string) error {
 		return err
 	}
 	return nil
-}
-
-func signImage(imageRef, keyPath string) error {
-	// TODO: check usecase for yaml signing
-	imageAnnotation := map[string]interface{}{}
-
-	// TODO: check sk (security key) and idToken (identity token for cert from fulcio)
-	sk := false
-	idToken := ""
-
-	// TODO: handle the case that COSIGN_EXPERIMENTAL env var is not set
-
-	opt := cosigncli.SignOpts{
-		Annotations: imageAnnotation,
-		Sk:          sk,
-		IDToken:     idToken,
-	}
-
-	if keyPath != "" {
-		opt.KeyRef = keyPath
-		opt.Pf = cosigncli.GetPass
-	}
-
-	return cosigncli.SignCmd(context.Background(), opt, imageRef, true, "", false, false)
 }
 
 func generateSignedYAMLManifest(inputDir, imageRef string, sigMaps map[string][]byte) ([]byte, error) {

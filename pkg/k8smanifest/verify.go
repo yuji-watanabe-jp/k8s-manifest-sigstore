@@ -17,8 +17,6 @@
 package k8smanifest
 
 import (
-	"context"
-	"crypto/x509"
 	"encoding/json"
 	"fmt"
 
@@ -27,14 +25,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/google/go-containerregistry/pkg/name"
+	k8scosign "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/cosign"
 	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
 	mapnode "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util/mapnode"
-
-	"github.com/sigstore/cosign/cmd/cosign/cli"
-	"github.com/sigstore/cosign/pkg/cosign"
-	"github.com/sigstore/cosign/pkg/cosign/fulcio"
-	"github.com/sigstore/sigstore/pkg/signature/payload"
 )
 
 var EmbeddedAnnotationMaskKeys = []string{
@@ -56,7 +49,7 @@ func (r *VerifyResult) String() string {
 	return string(rB)
 }
 
-func Verify(manifest []byte, imageRef, keyPath string) (*VerifyResult, error) {
+func Verify(manifest []byte, imageRef, keyPath string, useCache bool) (*VerifyResult, error) {
 	if manifest == nil {
 		return nil, errors.New("input YAML manifest must be non-empty")
 	}
@@ -66,10 +59,37 @@ func Verify(manifest []byte, imageRef, keyPath string) (*VerifyResult, error) {
 
 	// TODO: support directly attached annotation sigantures
 	if imageRef != "" {
-		manifestInImage, err := k8ssigutil.GetYAMLInImageWithCache(imageRef)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to get YAML manifest from image")
+		var manifestInImage []byte
+		manifestLoadedFromCache := false
+		var err error
+		if useCache {
+			ok := false
+			manifestInImage, ok, err = k8ssigutil.GetYAMLManifestCache(imageRef)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to get YAML manifest cache")
+			}
+			if ok {
+				manifestLoadedFromCache = true
+			}
 		}
+
+		if !manifestLoadedFromCache {
+			image, err := k8ssigutil.PullImage(imageRef)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to pull image")
+			}
+			manifestInImage, err = k8ssigutil.GenerateConcatYAMLsFromImage(image)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to get YAML manifest in image")
+			}
+		}
+		if useCache && !manifestLoadedFromCache {
+			err := k8ssigutil.SetYAMLManifestCache(imageRef, manifestInImage)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to save YAML manifest cache")
+			}
+		}
+
 		ok, tmpDiff, err := matchManifest(manifest, manifestInImage)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to match manifest")
@@ -82,9 +102,29 @@ func Verify(manifest []byte, imageRef, keyPath string) (*VerifyResult, error) {
 			}, nil
 		}
 
-		verified, signerName, err = imageVerify(imageRef, &keyPath)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to verify image")
+		imageVerifyLoadedFromCache := false
+		if useCache {
+			ok := false
+			verified, signerName, ok, err = k8ssigutil.GetImageVerifyResultCache(imageRef, keyPath)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to get image verify result cache")
+			}
+			if ok {
+				imageVerifyLoadedFromCache = true
+			}
+		}
+
+		if !imageVerifyLoadedFromCache {
+			verified, signerName, err = k8scosign.VerifyImage(imageRef, &keyPath)
+			if err != nil {
+				return nil, errors.Wrap(err, "error occurred during image verification")
+			}
+		}
+		if useCache && !imageVerifyLoadedFromCache {
+			err := k8ssigutil.SetImageVerifyResultCache(imageRef, keyPath, verified, signerName)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to save image verify result cache")
+			}
 		}
 	}
 
@@ -93,50 +133,6 @@ func Verify(manifest []byte, imageRef, keyPath string) (*VerifyResult, error) {
 		Signer:   signerName,
 	}, nil
 
-}
-
-func imageVerify(imageRef string, pubkeyPath *string) (bool, string, error) {
-	ref, err := name.ParseReference(imageRef)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to parse image ref `%s`; %s", imageRef, err.Error())
-	}
-
-	co := &cosign.CheckOpts{
-		Claims: true,
-		Tlog:   true,
-		Roots:  fulcio.Roots,
-	}
-
-	// TODO: support verify with pubkey
-
-	// if pubkeyPath != nil {
-	// 	tmpPubkey, err := LoadPubkey(*pubkeyPath)
-	// 	if err != nil {
-	// 		return false, "", fmt.Errorf("error loading public key; %s", err.Error())
-	// 	}
-	// 	co.PubKey = tmpPubkey
-	// }
-
-	rekorSever := cli.TlogServer()
-	verified, err := cosign.Verify(context.Background(), ref, co, rekorSever)
-	if err != nil {
-		return false, "", fmt.Errorf("error occured while verifying image `%s`; %s", imageRef, err.Error())
-	}
-	if len(verified) == 0 {
-		return false, "", fmt.Errorf("no verified signatures in the image `%s`; %s", imageRef, err.Error())
-	}
-	var cert *x509.Certificate
-	for _, vp := range verified {
-		ss := payload.SimpleContainerImage{}
-		err := json.Unmarshal(vp.Payload, &ss)
-		if err != nil {
-			continue
-		}
-		cert = vp.Cert
-		break
-	}
-	signerName := k8ssigutil.GetNameInfoFromCert(cert)
-	return true, signerName, nil
 }
 
 func matchManifest(manifest, manifestInImage []byte) (bool, *mapnode.DiffResult, error) {

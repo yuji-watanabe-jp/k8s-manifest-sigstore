@@ -41,6 +41,7 @@ func NewCmdVerifyResource() *cobra.Command {
 	var imageRef string
 	var keyPath string
 	var configPath string
+	var useCache bool
 	cmd := &cobra.Command{
 		Use:   "verify-resource -f <YAMLFILE> [-i <IMAGE>]",
 		Short: "A command to verify Kubernetes manifests of resources on cluster",
@@ -48,7 +49,7 @@ func NewCmdVerifyResource() *cobra.Command {
 			fullArgs := getOriginalFullArgs("verify-resource")
 			_, kubeGetArgs := splitArgs(fullArgs)
 
-			err := verifyResource(kubeGetArgs, imageRef, keyPath, configPath)
+			err := verifyResource(kubeGetArgs, imageRef, keyPath, configPath, useCache)
 			if err != nil {
 				return err
 			}
@@ -60,11 +61,12 @@ func NewCmdVerifyResource() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
 	cmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to verification config YAML file (for advanced verification)")
+	cmd.PersistentFlags().BoolVar(&useCache, "cache", true, "whether to use cache for pulling & verifying image (default to true)")
 
 	return cmd
 }
 
-func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string) error {
+func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string, useCache bool) error {
 	kArgs := []string{"get", "--output", "json"}
 	kArgs = append(kArgs, kubeGetArgs...)
 	log.Debug("kube get args", strings.Join(kArgs, " "))
@@ -98,7 +100,7 @@ func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string) 
 
 	results := []*k8smanifest.VerifyResourceResult{}
 	for _, obj := range objs {
-		result, err := k8smanifest.VerifyResource(obj, imageRef, keyPath, vo)
+		result, err := k8smanifest.VerifyResource(obj, imageRef, keyPath, vo, useCache)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			return nil
@@ -123,6 +125,7 @@ func splitArgs(args []string) ([]string, []string) {
 		"-k":       true,
 		"--config": true,
 		"-c":       true,
+		"--cache":  true,
 	}
 	skipIndex := map[int]bool{}
 	for i, s := range args {
