@@ -33,7 +33,8 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 	var imageRef string
 	var filename string
 	var keyPath string
-	var disableCache bool
+	var cacheDir string
+	var useCache bool
 	cmd := &cobra.Command{
 		Use:   "apply-after-verify -f <YAMLFILE> [-i <IMAGE>]",
 		Short: "A command to apply Kubernetes YAML manifests only after verifying signature",
@@ -43,11 +44,8 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 			if filename != "" {
 				kubeApplyArgs = append(kubeApplyArgs, []string{"--filename", filename}...)
 			}
-			useCache := true
-			if disableCache {
-				useCache = false
-			}
-			err := applyAfterVerify(filename, imageRef, keyPath, useCache, kubeApplyArgs)
+
+			err := applyAfterVerify(filename, imageRef, keyPath, useCache, cacheDir, kubeApplyArgs)
 			if err != nil {
 				return err
 			}
@@ -59,12 +57,13 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&filename, "filename", "f", "", "file name which will be signed (if dir, all YAMLs inside it will be signed)")
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
-	cmd.PersistentFlags().BoolVar(&disableCache, "disable-cache", false, "whether to use cache for pulling & verifying image (default: use cache)")
+	cmd.PersistentFlags().BoolVar(&useCache, "use-cache", false, "whether to use cache for pulling & verifying image (default: disabled)")
+	cmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", "a directory for storing cached data (if empty, not use cache)")
 
 	return cmd
 }
 
-func applyAfterVerify(filename, imageRef, keyPath string, useCache bool, kubeApplyArgs []string) error {
+func applyAfterVerify(filename, imageRef, keyPath string, useCache bool, cacheDir string, kubeApplyArgs []string) error {
 	manifest, err := ioutil.ReadFile(filename)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -79,7 +78,7 @@ func applyAfterVerify(filename, imageRef, keyPath string, useCache bool, kubeApp
 	log.Debug("annotations", annotations)
 	log.Debug("imageRef", imageRef)
 
-	result, err := k8smanifest.Verify(manifest, imageRef, keyPath, useCache)
+	result, err := k8smanifest.Verify(manifest, imageRef, keyPath, useCache, cacheDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return nil
@@ -121,15 +120,16 @@ func splitApplyArgs(args []string) ([]string, []string) {
 	mainArgs := []string{}
 	kubectlArgs := []string{}
 	mainArgsConditionSingle := map[string]bool{
-		"--disable-cache": true,
+		"--use-cache": true,
 	}
 	mainArgsConditionDouble := map[string]bool{
-		"--filename": true,
-		"-f":         true,
-		"--image":    true,
-		"-i":         true,
-		"--key":      true,
-		"-k":         true,
+		"--filename":  true,
+		"-f":          true,
+		"--image":     true,
+		"-i":          true,
+		"--key":       true,
+		"-k":          true,
+		"--cache-dir": true,
 	}
 	skipIndex := map[int]bool{}
 	for i, s := range args {

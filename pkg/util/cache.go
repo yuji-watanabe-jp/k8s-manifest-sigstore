@@ -30,7 +30,6 @@ import (
 	"time"
 )
 
-const cacheDirName = "/tmp/.k8s-manifest-sigstore-image-cache/"
 const cacheTTLSeconds = 10
 
 type manifestCache struct {
@@ -57,14 +56,14 @@ func cacheData(fpath string, data []byte) error {
 	return nil
 }
 
-func SetYAMLManifestCache(imageRef string, yamlBytes []byte) error {
+func SetYAMLManifestCache(cacheDir, imageRef string, yamlBytes []byte) error {
 	c := &manifestCache{
 		Data:              yamlBytes,
 		CreationTimestamp: time.Now().UTC().Unix(),
 	}
 	cB, _ := json.Marshal(c)
 	gCB := gzipCompress(cB)
-	fpath := generateYAMLCachePath(imageRef)
+	fpath := generateYAMLCachePath(cacheDir, imageRef)
 	err := cacheData(fpath, gCB)
 	if err != nil {
 		return err
@@ -72,8 +71,8 @@ func SetYAMLManifestCache(imageRef string, yamlBytes []byte) error {
 	return nil
 }
 
-func GetYAMLManifestCache(imageRef string) ([]byte, bool, error) {
-	cachePath := generateYAMLCachePath(imageRef)
+func GetYAMLManifestCache(cacheDir, imageRef string) ([]byte, bool, error) {
+	cachePath := generateYAMLCachePath(cacheDir, imageRef)
 	if exists(cachePath) {
 		var err error
 		var cacheBytes []byte
@@ -97,7 +96,7 @@ func GetYAMLManifestCache(imageRef string) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
-func SetImageVerifyResultCache(imageRef, keyPath string, verified bool, signerName string) error {
+func SetImageVerifyResultCache(cacheDir, imageRef, keyPath string, verified bool, signerName string) error {
 	c := &imageVerifyCache{
 		Verified:          verified,
 		SignerName:        signerName,
@@ -105,7 +104,7 @@ func SetImageVerifyResultCache(imageRef, keyPath string, verified bool, signerNa
 	}
 	cB, _ := json.Marshal(c)
 	gCB := gzipCompress(cB)
-	fpath := generateImageVerifyCachePath(imageRef, keyPath)
+	fpath := generateImageVerifyCachePath(cacheDir, imageRef, keyPath)
 	err := cacheData(fpath, gCB)
 	if err != nil {
 		return err
@@ -113,8 +112,8 @@ func SetImageVerifyResultCache(imageRef, keyPath string, verified bool, signerNa
 	return nil
 }
 
-func GetImageVerifyResultCache(imageRef, keyPath string) (bool, string, bool, error) {
-	cachePath := generateImageVerifyCachePath(imageRef, keyPath)
+func GetImageVerifyResultCache(cacheDir, imageRef, keyPath string) (bool, string, bool, error) {
+	cachePath := generateImageVerifyCachePath(cacheDir, imageRef, keyPath)
 	if exists(cachePath) {
 		var err error
 		var cacheBytes []byte
@@ -143,16 +142,16 @@ func exists(filename string) bool {
 	return err == nil
 }
 
-func generateYAMLCachePath(imageRef string) string {
+func generateYAMLCachePath(cacheDir, imageRef string) string {
 	imageRefString := normalizeImageRef(imageRef)
-	return filepath.Join(cacheDirName, "yaml", imageRefString)
+	return filepath.Join(cacheDir, "yaml", imageRefString)
 }
 
-func generateImageVerifyCachePath(imageRef, keyPath string) string {
+func generateImageVerifyCachePath(cacheDir, imageRef, keyPath string) string {
 	imageRefString := normalizeImageRef(imageRef)
 	keyPathHash := md5.Sum([]byte(keyPath))
 	keyPathHashStr := fmt.Sprintf("%x", keyPathHash)
-	return filepath.Join(cacheDirName, "verify", imageRefString, keyPathHashStr)
+	return filepath.Join(cacheDir, "verify", imageRefString, keyPathHashStr)
 }
 
 func normalizeImageRef(imageRef string) string {

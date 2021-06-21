@@ -25,7 +25,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	k8scosign "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/cosign"
 	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
 	mapnode "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util/mapnode"
 )
@@ -49,7 +48,7 @@ func (r *VerifyResult) String() string {
 	return string(rB)
 }
 
-func Verify(manifest []byte, imageRef, keyPath string, useCache bool) (*VerifyResult, error) {
+func Verify(manifest []byte, imageRef, keyPath string, useCache bool, cacheDir string) (*VerifyResult, error) {
 	if manifest == nil {
 		return nil, errors.New("input YAML manifest must be non-empty")
 	}
@@ -59,35 +58,14 @@ func Verify(manifest []byte, imageRef, keyPath string, useCache bool) (*VerifyRe
 
 	// TODO: support directly attached annotation sigantures
 	if imageRef != "" {
-		var manifestInImage []byte
-		manifestLoadedFromCache := false
-		var err error
-		if useCache {
-			ok := false
-			manifestInImage, ok, err = k8ssigutil.GetYAMLManifestCache(imageRef)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to get YAML manifest cache")
-			}
-			if ok {
-				manifestLoadedFromCache = true
-			}
+		fetcher := ImageManifestFetcher{}
+		if useCache && cacheDir != "" {
+			fetcher.UseCache = useCache
+			fetcher.CacheDir = cacheDir
 		}
-
-		if !manifestLoadedFromCache {
-			image, err := k8ssigutil.PullImage(imageRef)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to pull image")
-			}
-			manifestInImage, err = k8ssigutil.GenerateConcatYAMLsFromImage(image)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to get YAML manifest in image")
-			}
-		}
-		if useCache && !manifestLoadedFromCache {
-			err := k8ssigutil.SetYAMLManifestCache(imageRef, manifestInImage)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to save YAML manifest cache")
-			}
+		manifestInImage, err := fetcher.FetchYAMLManifest(imageRef)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to fetch YAML manifest")
 		}
 
 		ok, tmpDiff, err := matchManifest(manifest, manifestInImage)
@@ -102,29 +80,14 @@ func Verify(manifest []byte, imageRef, keyPath string, useCache bool) (*VerifyRe
 			}, nil
 		}
 
-		imageVerifyLoadedFromCache := false
-		if useCache {
-			ok := false
-			verified, signerName, ok, err = k8ssigutil.GetImageVerifyResultCache(imageRef, keyPath)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to get image verify result cache")
-			}
-			if ok {
-				imageVerifyLoadedFromCache = true
-			}
+		verifier := ImageSignatureVerifier{}
+		if useCache && cacheDir != "" {
+			verifier.UseCache = useCache
+			verifier.CacheDir = cacheDir
 		}
-
-		if !imageVerifyLoadedFromCache {
-			verified, signerName, err = k8scosign.VerifyImage(imageRef, &keyPath)
-			if err != nil {
-				return nil, errors.Wrap(err, "error occurred during image verification")
-			}
-		}
-		if useCache && !imageVerifyLoadedFromCache {
-			err := k8ssigutil.SetImageVerifyResultCache(imageRef, keyPath, verified, signerName)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to save image verify result cache")
-			}
+		verified, signerName, err = verifier.Verify(imageRef, &keyPath)
+		if err != nil {
+			return nil, errors.Wrap(err, "error occured during signature verification")
 		}
 	}
 
