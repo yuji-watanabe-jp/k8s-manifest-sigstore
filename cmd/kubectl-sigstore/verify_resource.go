@@ -66,7 +66,7 @@ func NewCmdVerifyResource() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
 	cmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to verification config YAML file (for advanced verification)")
-	cmd.PersistentFlags().BoolVar(&disableCache, "disable-cache", false, "whether to use cache for pulling & verifying image (default to true)")
+	cmd.PersistentFlags().BoolVar(&disableCache, "disable-cache", false, "whether to use cache for pulling & verifying image (default: use cache)")
 
 	return cmd
 }
