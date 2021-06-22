@@ -108,15 +108,13 @@ func imageVerify(imageRef string, pubkeyPath *string) (bool, string, error) {
 		Roots:  fulcio.Roots,
 	}
 
-	// TODO: support verify with pubkey
-
-	// if pubkeyPath != nil {
-	// 	tmpPubkey, err := LoadPubkey(*pubkeyPath)
-	// 	if err != nil {
-	// 		return false, "", fmt.Errorf("error loading public key; %s", err.Error())
-	// 	}
-	// 	co.PubKey = tmpPubkey
-	// }
+	if pubkeyPath != nil && *pubkeyPath != "" {
+		tmpPubkey, err := cosign.LoadPublicKey(context.Background(), *pubkeyPath)
+		if err != nil {
+			return false, "", fmt.Errorf("error loading public key; %s", err.Error())
+		}
+		co.PubKey = tmpPubkey
+	}
 
 	rekorSever := cli.TlogServer()
 	verified, err := cosign.Verify(context.Background(), ref, co, rekorSever)
@@ -136,7 +134,11 @@ func imageVerify(imageRef string, pubkeyPath *string) (bool, string, error) {
 		cert = vp.Cert
 		break
 	}
-	signerName := k8ssigutil.GetNameInfoFromCert(cert)
+
+	signerName := "" // singerName could be empty in case of key-used verification
+	if cert != nil {
+		signerName = k8ssigutil.GetNameInfoFromCert(cert)
+	}
 	return true, signerName, nil
 }
 
