@@ -32,6 +32,7 @@ func NewCmdVerify() *cobra.Command {
 	var imageRef string
 	var filename string
 	var keyPath string
+	var configPath string
 	var cacheDir string
 	var useCache bool
 	cmd := &cobra.Command{
@@ -39,7 +40,7 @@ func NewCmdVerify() *cobra.Command {
 		Short: "A command to verify Kubernetes YAML manifests",
 		RunE: func(cmd *cobra.Command, args []string) error {
 
-			err := verify(filename, imageRef, keyPath, useCache, cacheDir)
+			err := verify(filename, imageRef, keyPath, configPath, useCache, cacheDir)
 			if err != nil {
 				return err
 			}
@@ -50,13 +51,14 @@ func NewCmdVerify() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&filename, "filename", "f", "", "file name which will be signed (if dir, all YAMLs inside it will be signed)")
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
+	cmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to verification config YAML file (for advanced verification)")
 	cmd.PersistentFlags().BoolVar(&useCache, "use-cache", false, "whether to use cache for pulling & verifying image (default: disabled)")
 	cmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", "a directory for storing cached data (if empty, not use cache)")
 
 	return cmd
 }
 
-func verify(filename, imageRef, keyPath string, useCache bool, cacheDir string) error {
+func verify(filename, imageRef, keyPath, configPath string, useCache bool, cacheDir string) error {
 	manifest, err := ioutil.ReadFile(filename)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -71,7 +73,26 @@ func verify(filename, imageRef, keyPath string, useCache bool, cacheDir string) 
 	log.Debug("annotations", annotations)
 	log.Debug("imageRef", imageRef)
 
-	result, err := k8smanifest.Verify(manifest, imageRef, keyPath, useCache, cacheDir)
+	vo := &k8smanifest.VerifyOption{}
+	if configPath != "" {
+		vo, err = k8smanifest.LoadVerifyConfig(configPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			return nil
+		}
+	}
+	if imageRef != "" {
+		vo.ImageRef = imageRef
+	}
+	if keyPath != "" {
+		vo.KeyPath = keyPath
+	}
+	if useCache && cacheDir != "" {
+		vo.UseCache = useCache
+		vo.CacheDir = cacheDir
+	}
+
+	result, err := k8smanifest.Verify(manifest, vo)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return nil

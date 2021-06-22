@@ -28,6 +28,12 @@ type VerifyOption struct {
 	SkipObjects  ObjectReferenceList    `json:"skipObjects,omitempty"`
 	IgnoreFields ObjectFieldBindingList `json:"ignoreFields,omitempty"`
 	Signers      SignerList             `json:"signers,omitempty"`
+
+	// these options should be input from CLI arguments
+	KeyPath  string `json:"-"`
+	ImageRef string `json:"-"`
+	UseCache bool   `json:"-"`
+	CacheDir string `json:"-"`
 }
 
 type ObjectReference struct {

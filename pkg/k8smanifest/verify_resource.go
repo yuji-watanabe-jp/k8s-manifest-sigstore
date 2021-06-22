@@ -63,18 +63,18 @@ func (r *VerifyResourceResult) String() string {
 	return string(rB)
 }
 
-func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo *VerifyOption, useCache bool, cacheDir string) (*VerifyResourceResult, error) {
+func VerifyResource(obj unstructured.Unstructured, vo *VerifyOption) (*VerifyResourceResult, error) {
 
 	verified := false
 	inScope := true // assume that input resource is in scope in verify-resource
 	signerName := ""
 
 	// if imageRef is not specified in args and it is found in object annotations, use the found image ref
-	if imageRef == "" {
+	if vo.ImageRef == "" {
 		annotations := obj.GetAnnotations()
 		annoImageRef, found := annotations[ImageRefAnnotationKey]
 		if found {
-			imageRef = annoImageRef
+			vo.ImageRef = annoImageRef
 		}
 	}
 
@@ -95,13 +95,13 @@ func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo 
 
 	// do manifest matching and signature verification
 	// TODO: support directly attached annotation sigantures
-	if imageRef != "" {
+	if vo.ImageRef != "" {
 		fetcher := ImageManifestFetcher{}
-		if useCache && cacheDir != "" {
-			fetcher.UseCache = useCache
-			fetcher.CacheDir = cacheDir
+		if vo.UseCache && vo.CacheDir != "" {
+			fetcher.UseCache = vo.UseCache
+			fetcher.CacheDir = vo.CacheDir
 		}
-		manifestInImage, err := fetcher.FetchYAMLManifest(imageRef)
+		manifestInImage, err := fetcher.FetchYAMLManifest(vo.ImageRef)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to fetch YAML manifest")
 		}
@@ -121,11 +121,11 @@ func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo 
 		}
 
 		verifier := ImageSignatureVerifier{}
-		if useCache && cacheDir != "" {
-			verifier.UseCache = useCache
-			verifier.CacheDir = cacheDir
+		if vo.UseCache && vo.CacheDir != "" {
+			verifier.UseCache = vo.UseCache
+			verifier.CacheDir = vo.CacheDir
 		}
-		verified, signerName, err = verifier.Verify(imageRef, &keyPath)
+		verified, signerName, err = verifier.Verify(vo.ImageRef, &vo.KeyPath)
 		if err != nil {
 			return nil, errors.Wrap(err, "error occured during signature verification")
 		}

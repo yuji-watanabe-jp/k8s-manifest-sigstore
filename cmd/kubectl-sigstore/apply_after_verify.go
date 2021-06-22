@@ -78,7 +78,20 @@ func applyAfterVerify(filename, imageRef, keyPath string, useCache bool, cacheDi
 	log.Debug("annotations", annotations)
 	log.Debug("imageRef", imageRef)
 
-	result, err := k8smanifest.Verify(manifest, imageRef, keyPath, useCache, cacheDir)
+	vo := &k8smanifest.VerifyOption{}
+
+	if imageRef != "" {
+		vo.ImageRef = imageRef
+	}
+	if keyPath != "" {
+		vo.KeyPath = keyPath
+	}
+	if useCache && cacheDir != "" {
+		vo.UseCache = useCache
+		vo.CacheDir = cacheDir
+	}
+
+	result, err := k8smanifest.Verify(manifest, vo)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return nil

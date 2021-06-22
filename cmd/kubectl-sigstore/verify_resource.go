@@ -100,9 +100,20 @@ func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string, 
 		}
 	}
 
+	if imageRef != "" {
+		vo.ImageRef = imageRef
+	}
+	if keyPath != "" {
+		vo.KeyPath = keyPath
+	}
+	if useCache && cacheDir != "" {
+		vo.UseCache = useCache
+		vo.CacheDir = cacheDir
+	}
+
 	results := []*k8smanifest.VerifyResourceResult{}
 	for _, obj := range objs {
-		result, err := k8smanifest.VerifyResource(obj, imageRef, keyPath, vo, useCache, cacheDir)
+		result, err := k8smanifest.VerifyResource(obj, vo)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			return nil

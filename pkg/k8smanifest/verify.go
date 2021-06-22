@@ -48,7 +48,7 @@ func (r *VerifyResult) String() string {
 	return string(rB)
 }
 
-func Verify(manifest []byte, imageRef, keyPath string, useCache bool, cacheDir string) (*VerifyResult, error) {
+func Verify(manifest []byte, vo *VerifyOption) (*VerifyResult, error) {
 	if manifest == nil {
 		return nil, errors.New("input YAML manifest must be non-empty")
 	}
@@ -57,13 +57,13 @@ func Verify(manifest []byte, imageRef, keyPath string, useCache bool, cacheDir s
 	signerName := ""
 
 	// TODO: support directly attached annotation sigantures
-	if imageRef != "" {
+	if vo.ImageRef != "" {
 		fetcher := ImageManifestFetcher{}
-		if useCache && cacheDir != "" {
-			fetcher.UseCache = useCache
-			fetcher.CacheDir = cacheDir
+		if vo.UseCache && vo.CacheDir != "" {
+			fetcher.UseCache = vo.UseCache
+			fetcher.CacheDir = vo.CacheDir
 		}
-		manifestInImage, err := fetcher.FetchYAMLManifest(imageRef)
+		manifestInImage, err := fetcher.FetchYAMLManifest(vo.ImageRef)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to fetch YAML manifest")
 		}
@@ -81,13 +81,18 @@ func Verify(manifest []byte, imageRef, keyPath string, useCache bool, cacheDir s
 		}
 
 		verifier := ImageSignatureVerifier{}
-		if useCache && cacheDir != "" {
-			verifier.UseCache = useCache
-			verifier.CacheDir = cacheDir
+		if vo.UseCache && vo.CacheDir != "" {
+			verifier.UseCache = vo.UseCache
+			verifier.CacheDir = vo.CacheDir
 		}
-		verified, signerName, err = verifier.Verify(imageRef, &keyPath)
+		verified, signerName, err = verifier.Verify(vo.ImageRef, &vo.KeyPath)
 		if err != nil {
 			return nil, errors.Wrap(err, "error occured during signature verification")
+		}
+		if verified {
+			if !vo.Signers.Match(signerName) {
+				verified = false
+			}
 		}
 	}
 
