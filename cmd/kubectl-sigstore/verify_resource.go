@@ -21,17 +21,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/spf13/cobra"
 	"github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/k8smanifest"
 	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
+	metatable "k8s.io/apimachinery/pkg/api/meta/table"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -41,6 +40,8 @@ func NewCmdVerifyResource() *cobra.Command {
 	var imageRef string
 	var keyPath string
 	var configPath string
+	var cacheDir string
+	var useCache bool
 	cmd := &cobra.Command{
 		Use:   "verify-resource -f <YAMLFILE> [-i <IMAGE>]",
 		Short: "A command to verify Kubernetes manifests of resources on cluster",
@@ -48,7 +49,7 @@ func NewCmdVerifyResource() *cobra.Command {
 			fullArgs := getOriginalFullArgs("verify-resource")
 			_, kubeGetArgs := splitArgs(fullArgs)
 
-			err := verifyResource(kubeGetArgs, imageRef, keyPath, configPath)
+			err := verifyResource(kubeGetArgs, imageRef, keyPath, configPath, useCache, cacheDir)
 			if err != nil {
 				return err
 			}
@@ -60,11 +61,13 @@ func NewCmdVerifyResource() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
 	cmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to verification config YAML file (for advanced verification)")
+	cmd.PersistentFlags().BoolVar(&useCache, "use-cache", false, "whether to use cache for pulling & verifying image (default: disabled)")
+	cmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", "a directory for storing cached data (if empty, not use cache)")
 
 	return cmd
 }
 
-func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string) error {
+func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string, useCache bool, cacheDir string) error {
 	kArgs := []string{"get", "--output", "json"}
 	kArgs = append(kArgs, kubeGetArgs...)
 	log.Debug("kube get args", strings.Join(kArgs, " "))
@@ -87,18 +90,29 @@ func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string) 
 		objs = append(objs, tmpObj)
 	}
 
-	vo := &k8smanifest.VerifyOption{}
+	vo := &k8smanifest.VerifyResourceOption{}
 	if configPath != "" {
-		vo, err = k8smanifest.LoadVerifyConfig(configPath)
+		vo, err = k8smanifest.LoadVerifyResourceConfig(configPath)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			return nil
 		}
 	}
 
+	if imageRef != "" {
+		vo.ImageRef = imageRef
+	}
+	if keyPath != "" {
+		vo.KeyPath = keyPath
+	}
+	if useCache && cacheDir != "" {
+		vo.UseCache = useCache
+		vo.CacheDir = cacheDir
+	}
+
 	results := []*k8smanifest.VerifyResourceResult{}
 	for _, obj := range objs {
-		result, err := k8smanifest.VerifyResource(obj, imageRef, keyPath, vo)
+		result, err := k8smanifest.VerifyResource(obj, vo)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			return nil
@@ -116,20 +130,26 @@ func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string) 
 func splitArgs(args []string) ([]string, []string) {
 	mainArgs := []string{}
 	kubectlArgs := []string{}
-	mainArgsCondition := map[string]bool{
-		"--image":  true,
-		"-i":       true,
-		"--key":    true,
-		"-k":       true,
-		"--config": true,
-		"-c":       true,
+	mainArgsConditionSingle := map[string]bool{
+		"--use-cache": true,
+	}
+	mainArgsConditionDouble := map[string]bool{
+		"--image":     true,
+		"-i":          true,
+		"--key":       true,
+		"-k":          true,
+		"--config":    true,
+		"-c":          true,
+		"--cache-dir": true,
 	}
 	skipIndex := map[int]bool{}
 	for i, s := range args {
 		if skipIndex[i] {
 			continue
 		}
-		if mainArgsCondition[s] {
+		if mainArgsConditionSingle[s] {
+			mainArgs = append(mainArgs, args[i])
+		} else if mainArgsConditionDouble[s] {
 			mainArgs = append(mainArgs, args[i])
 			mainArgs = append(mainArgs, args[i+1])
 			skipIndex[i+1] = true
@@ -162,10 +182,5 @@ func makeResourceResultTable(results []*k8smanifest.VerifyResourceResult) []byte
 }
 
 func getAge(t metav1.Time) string {
-	ut := t.Time.UTC()
-	dur := time.Now().UTC().Sub(ut)
-	durStrBase := strings.Split(dur.String(), ".")[0] + "s"
-	re := regexp.MustCompile(`\d+[a-z]`)
-	age := re.FindString(durStrBase)
-	return age
+	return metatable.ConvertToHumanReadableDateType(t)
 }

@@ -20,11 +20,11 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/ghodss/yaml"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	v1 "github.com/google/go-containerregistry/pkg/v1"
 	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
 	kubeutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util/kubeutil"
 	mapnode "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util/mapnode"
@@ -64,18 +64,21 @@ func (r *VerifyResourceResult) String() string {
 	return string(rB)
 }
 
-func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo *VerifyOption) (*VerifyResourceResult, error) {
+func VerifyResource(obj unstructured.Unstructured, vo *VerifyResourceOption) (*VerifyResourceResult, error) {
+
+	objBytes, _ := yaml.Marshal(obj.Object)
 
 	verified := false
 	inScope := true // assume that input resource is in scope in verify-resource
 	signerName := ""
+	var err error
 
 	// if imageRef is not specified in args and it is found in object annotations, use the found image ref
-	if imageRef == "" {
+	if vo.ImageRef == "" {
 		annotations := obj.GetAnnotations()
 		annoImageRef, found := annotations[ImageRefAnnotationKey]
 		if found {
-			imageRef = annoImageRef
+			vo.ImageRef = annoImageRef
 		}
 	}
 
@@ -94,34 +97,46 @@ func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo 
 		}
 	}
 
-	// do manifest matching and signature verification
-	// TODO: support directly attached annotation sigantures
-	if imageRef != "" {
-		image, err := k8ssigutil.PullImage(imageRef)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to pull image")
-		}
-		ok, tmpDiff, err := matchResourceWithManifest(obj, image, ignoreFields)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to match resource with manifest")
-		}
-		if !ok {
-			return &VerifyResourceResult{
-				Object:   obj,
-				Verified: false,
-				InScope:  inScope,
-				Signer:   "",
-				Diff:     tmpDiff,
-			}, nil
-		}
-		verified, signerName, err = imageVerify(imageRef, &keyPath)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to verify image")
-		}
-		if verified {
-			if !vo.Signers.Match(signerName) {
-				verified = false
-			}
+	var manifestInRef []byte
+	var manifestFound bool
+	manifestInRef, manifestFound, err = NewManifestFetcher(vo.ImageRef).Fetch(objBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to fetch YAML manifest")
+	}
+	if !manifestFound {
+		return &VerifyResourceResult{
+			Object:   obj,
+			Verified: false,
+			InScope:  inScope,
+		}, nil
+	}
+
+	matched, diff, err := matchResourceWithManifest(obj, manifestInRef, ignoreFields)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to match manifest")
+	}
+	if !matched {
+		return &VerifyResourceResult{
+			Object:   obj,
+			Verified: false,
+			InScope:  inScope,
+			Signer:   "",
+			Diff:     diff,
+		}, nil
+	}
+
+	var keyPath *string
+	if vo.KeyPath != "" {
+		keyPath = &(vo.KeyPath)
+	}
+
+	verified, signerName, err = NewSignatureVerifier(objBytes, vo.ImageRef).Verify(keyPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "error occured during signature verification")
+	}
+	if verified {
+		if !vo.Signers.Match(signerName) {
+			verified = false
 		}
 	}
 
@@ -131,28 +146,24 @@ func VerifyResource(obj unstructured.Unstructured, imageRef, keyPath string, vo 
 		InScope:  inScope,
 		Signer:   signerName,
 	}, nil
-
 }
 
-func matchResourceWithManifest(obj unstructured.Unstructured, image v1.Image, ignoreFields []string) (bool, *mapnode.DiffResult, error) {
+func matchResourceWithManifest(obj unstructured.Unstructured, manifestInImage []byte, ignoreFields []string) (bool, *mapnode.DiffResult, error) {
 
 	apiVersion := obj.GetAPIVersion()
 	kind := obj.GetKind()
 	name := obj.GetName()
 	namespace := obj.GetNamespace()
 
-	concatYAMLFromImage, err := k8ssigutil.GenerateConcatYAMLsFromImage(image)
-	if err != nil {
-		return false, nil, err
-	}
 	log.Debug("obj: apiVersion", apiVersion, "kind", kind, "name", name)
-	log.Debug("manifest in image:", string(concatYAMLFromImage))
+	log.Debug("manifest in image:", string(manifestInImage))
 
-	found, foundBytes := k8ssigutil.FindSingleYaml(concatYAMLFromImage, apiVersion, kind, name, namespace)
+	found, foundBytes := k8ssigutil.FindSingleYaml(manifestInImage, apiVersion, kind, name, namespace)
 	if !found {
 		return false, nil, errors.New("failed to find the corresponding manifest YAML file in image")
 	}
 
+	var err error
 	var matched bool
 	var diff *mapnode.DiffResult
 	objBytes, _ := json.Marshal(obj.Object)

@@ -17,25 +17,16 @@
 package k8smanifest
 
 import (
-	"context"
-	"crypto/x509"
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
-	"github.com/ghodss/yaml"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/google/go-containerregistry/pkg/name"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
+	k8smnfcosign "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/cosign"
+	k8smnfutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
 	mapnode "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util/mapnode"
-
-	"github.com/sigstore/cosign/cmd/cosign/cli"
-	"github.com/sigstore/cosign/pkg/cosign"
-	"github.com/sigstore/cosign/pkg/cosign/fulcio"
-	"github.com/sigstore/sigstore/pkg/signature/payload"
 )
 
 var EmbeddedAnnotationMaskKeys = []string{
@@ -44,6 +35,145 @@ var EmbeddedAnnotationMaskKeys = []string{
 	fmt.Sprintf("metadata.annotations.\"%s\"", CertificateAnnotationKey),
 	fmt.Sprintf("metadata.annotations.\"%s\"", MessageAnnotationKey),
 	fmt.Sprintf("metadata.annotations.\"%s\"", BundleAnnotationKey),
+}
+
+type SignatureVerifier interface {
+	Verify(pubkeyPath *string) (bool, string, error)
+}
+
+func NewSignatureVerifier(objYAMLBytes []byte, imageRef string) SignatureVerifier {
+	var annotations map[string]string
+	if imageRef == "" {
+		annotations = k8smnfutil.GetAnnotationsInYAML(objYAMLBytes)
+		if annoImageRef, ok := annotations[ImageRefAnnotationKey]; ok {
+			imageRef = annoImageRef
+		}
+	}
+	if imageRef == "" {
+		return &AnnotationSignatureVerifier{annotations: annotations}
+	} else {
+		return &ImageSignatureVerifier{imageRef: imageRef}
+	}
+}
+
+type ImageSignatureVerifier struct {
+	imageRef string
+	useCache bool
+	cacheDir string
+}
+
+func (v *ImageSignatureVerifier) Verify(pubkeyPath *string) (bool, string, error) {
+	imageRef := v.imageRef
+	if imageRef == "" {
+		return false, "", errors.New("no image reference is found")
+	}
+
+	return k8smnfcosign.VerifyImage(imageRef, pubkeyPath)
+}
+
+type AnnotationSignatureVerifier struct {
+	annotations map[string]string
+}
+
+func (v *AnnotationSignatureVerifier) Verify(pubkeyPath *string) (bool, string, error) {
+	annotations := v.annotations
+
+	msg, ok := annotations[MessageAnnotationKey]
+	if !ok {
+		return false, "", fmt.Errorf("`%s` is not found in the annotations", MessageAnnotationKey)
+	}
+	sig, ok := annotations[SignatureAnnotationKey]
+	if !ok {
+		return false, "", fmt.Errorf("`%s` is not found in the annotations", SignatureAnnotationKey)
+	}
+	cert, _ := annotations[CertificateAnnotationKey]
+
+	msgBytes := []byte(msg)
+	sigBytes := []byte(sig)
+	certBytes := []byte(cert)
+
+	return k8smnfcosign.VerifyBlob(msgBytes, sigBytes, certBytes, pubkeyPath)
+}
+
+// This is an interface for fetching YAML manifest
+// a function Fetch() fetches a YAML manifest which matches the input object's kind, name and so on
+type ManifestFetcher interface {
+	Fetch(objYAMLBytes []byte) ([]byte, bool, error)
+}
+
+func NewManifestFetcher(imageRef string) ManifestFetcher {
+	if imageRef == "" {
+		return &AnnotationManifestFetcher{}
+	} else {
+		return &ImageManifestFetcher{imageRef: imageRef}
+	}
+}
+
+// ImageManifestFetcher is a fetcher implementation for image reference
+type ImageManifestFetcher struct {
+	imageRef string
+	useCache bool
+	cacheDir string
+}
+
+func (f *ImageManifestFetcher) Fetch(objYAMLBytes []byte) ([]byte, bool, error) {
+	imageRef := f.imageRef
+	if imageRef == "" {
+		annotations := k8smnfutil.GetAnnotationsInYAML(objYAMLBytes)
+		if annoImageRef, ok := annotations[ImageRefAnnotationKey]; ok {
+			imageRef = annoImageRef
+		}
+	}
+	if imageRef == "" {
+		return nil, false, errors.New("no image reference is found")
+	}
+
+	image, err := k8smnfutil.PullImage(imageRef)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "failed to pull image")
+	}
+
+	concatYAMLbytes, err := k8smnfutil.GenerateConcatYAMLsFromImage(image)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "failed to get YAMLs in the image")
+	}
+
+	found, foundManifest := k8smnfutil.FindManifestYAML(concatYAMLbytes, objYAMLBytes)
+	if !found {
+		return nil, false, errors.New("failed to find a YAML manifest in the image")
+	}
+	return foundManifest, true, nil
+}
+
+type AnnotationManifestFetcher struct {
+}
+
+func (f *AnnotationManifestFetcher) Fetch(objYAMLBytes []byte) ([]byte, bool, error) {
+
+	annotations := k8smnfutil.GetAnnotationsInYAML(objYAMLBytes)
+
+	base64Msg, messageFound := annotations[MessageAnnotationKey]
+	if !messageFound {
+		return nil, false, nil
+	}
+	gzipMsg, err := base64.StdEncoding.DecodeString(base64Msg)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "failed to decode base64 message in the annotation")
+	}
+
+	gzipStream := bytes.NewBuffer(gzipMsg)
+	yamls, err := k8smnfutil.GetYAMLsInArtifact(gzipStream)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "failed to read YAMLs in the gzipped message")
+	}
+
+	concatYAMLbytes := k8smnfutil.ConcatenateYAMLs(yamls)
+
+	found, foundManifest := k8smnfutil.FindManifestYAML(concatYAMLbytes, objYAMLBytes)
+	if !found {
+		return nil, false, errors.New("failed to find a YAML manifest in the gzipped message")
+	}
+	return foundManifest, true, nil
 }
 
 type VerifyResult struct {
@@ -55,127 +185,4 @@ type VerifyResult struct {
 func (r *VerifyResult) String() string {
 	rB, _ := json.Marshal(r)
 	return string(rB)
-}
-
-func Verify(manifest []byte, imageRef, keyPath string) (*VerifyResult, error) {
-	if manifest == nil {
-		return nil, errors.New("input YAML manifest must be non-empty")
-	}
-
-	verified := false
-	signerName := ""
-
-	// TODO: support directly attached annotation sigantures
-	if imageRef != "" {
-		image, err := k8ssigutil.PullImage(imageRef)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to pull image")
-		}
-		ok, tmpDiff, err := matchManifest(manifest, image)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to match manifest")
-		}
-		if !ok {
-			return &VerifyResult{
-				Verified: false,
-				Signer:   "",
-				Diff:     tmpDiff,
-			}, nil
-		}
-
-		verified, signerName, err = imageVerify(imageRef, &keyPath)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to verify image")
-		}
-	}
-
-	return &VerifyResult{
-		Verified: verified,
-		Signer:   signerName,
-	}, nil
-
-}
-
-func imageVerify(imageRef string, pubkeyPath *string) (bool, string, error) {
-	ref, err := name.ParseReference(imageRef)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to parse image ref `%s`; %s", imageRef, err.Error())
-	}
-
-	co := &cosign.CheckOpts{
-		Claims: true,
-		Tlog:   true,
-		Roots:  fulcio.Roots,
-	}
-
-	if pubkeyPath != nil && *pubkeyPath != "" {
-		tmpPubkey, err := cosign.LoadPublicKey(context.Background(), *pubkeyPath)
-		if err != nil {
-			return false, "", fmt.Errorf("error loading public key; %s", err.Error())
-		}
-		co.PubKey = tmpPubkey
-	}
-
-	rekorSever := cli.TlogServer()
-	verified, err := cosign.Verify(context.Background(), ref, co, rekorSever)
-	if err != nil {
-		return false, "", fmt.Errorf("error occured while verifying image `%s`; %s", imageRef, err.Error())
-	}
-	if len(verified) == 0 {
-		return false, "", fmt.Errorf("no verified signatures in the image `%s`; %s", imageRef, err.Error())
-	}
-	var cert *x509.Certificate
-	for _, vp := range verified {
-		ss := payload.SimpleContainerImage{}
-		err := json.Unmarshal(vp.Payload, &ss)
-		if err != nil {
-			continue
-		}
-		cert = vp.Cert
-		break
-	}
-
-	signerName := "" // singerName could be empty in case of key-used verification
-	if cert != nil {
-		signerName = k8ssigutil.GetNameInfoFromCert(cert)
-	}
-	return true, signerName, nil
-}
-
-func matchManifest(manifest []byte, image v1.Image) (bool, *mapnode.DiffResult, error) {
-	concatYAMLFromImage, err := k8ssigutil.GenerateConcatYAMLsFromImage(image)
-	if err != nil {
-		return false, nil, err
-	}
-	log.Debug("manifest:", string(manifest))
-	log.Debug("manifest in image:", string(concatYAMLFromImage))
-	inputFileNode, err := mapnode.NewFromYamlBytes(manifest)
-	if err != nil {
-		return false, nil, err
-	}
-	maskedInputNode := inputFileNode.Mask(EmbeddedAnnotationMaskKeys)
-
-	var obj unstructured.Unstructured
-	err = yaml.Unmarshal(manifest, &obj)
-	if err != nil {
-		return false, nil, err
-	}
-	apiVersion := obj.GetAPIVersion()
-	kind := obj.GetKind()
-	name := obj.GetName()
-	namespace := obj.GetNamespace()
-	found, foundBytes := k8ssigutil.FindSingleYaml(concatYAMLFromImage, apiVersion, kind, name, namespace)
-	if !found {
-		return false, nil, errors.New("failed to find the input file in image")
-	}
-	manifestNode, err := mapnode.NewFromYamlBytes(foundBytes)
-	if err != nil {
-		return false, nil, err
-	}
-	maskedManifestNode := manifestNode.Mask(EmbeddedAnnotationMaskKeys)
-	diff := maskedInputNode.Diff(maskedManifestNode)
-	if diff == nil || diff.Size() == 0 {
-		return true, nil, nil
-	}
-	return false, diff, nil
 }

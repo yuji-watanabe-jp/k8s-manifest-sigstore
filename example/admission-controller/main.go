@@ -104,8 +104,14 @@ func (h *k8sManifestHandler) Handle(ctx context.Context, req admission.Request) 
 		if config.KeySecertName != "" {
 			keyPath, _ = config.LoadKeySecret()
 		}
-		vo := &(config.VerifyOption)
-		result, err := k8smanifest.VerifyResource(obj, imageRef, keyPath, vo)
+		vo := &(config.VerifyResourceOption)
+		if imageRef != "" {
+			vo.ImageRef = imageRef
+		}
+		if keyPath != "" {
+			vo.KeyPath = keyPath
+		}
+		result, err := k8smanifest.VerifyResource(obj, vo)
 		if err != nil {
 			log.Errorf("failed to check a requested resource; %s", err.Error())
 			return admission.Allowed("error but allow for development")
