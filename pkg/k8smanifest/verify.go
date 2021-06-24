@@ -58,8 +58,6 @@ func NewSignatureVerifier(objYAMLBytes []byte, imageRef string) SignatureVerifie
 
 type ImageSignatureVerifier struct {
 	imageRef string
-	useCache bool
-	cacheDir string
 }
 
 func (v *ImageSignatureVerifier) Verify(pubkeyPath *string) (bool, string, error) {
@@ -112,8 +110,6 @@ func NewManifestFetcher(imageRef string) ManifestFetcher {
 // ImageManifestFetcher is a fetcher implementation for image reference
 type ImageManifestFetcher struct {
 	imageRef string
-	useCache bool
-	cacheDir string
 }
 
 func (f *ImageManifestFetcher) Fetch(objYAMLBytes []byte) ([]byte, bool, error) {

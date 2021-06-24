@@ -34,8 +34,6 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 	var filename string
 	var keyPath string
 	var configPath string
-	var cacheDir string
-	var useCache bool
 	cmd := &cobra.Command{
 		Use:   "apply-after-verify -f <YAMLFILE> [-i <IMAGE>]",
 		Short: "A command to apply Kubernetes YAML manifests only after verifying signature",
@@ -46,7 +44,7 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 				kubeApplyArgs = append(kubeApplyArgs, []string{"--filename", filename}...)
 			}
 
-			err := applyAfterVerify(filename, imageRef, keyPath, configPath, useCache, cacheDir, kubeApplyArgs)
+			err := applyAfterVerify(filename, imageRef, keyPath, configPath, kubeApplyArgs)
 			if err != nil {
 				return err
 			}
@@ -59,13 +57,11 @@ func NewCmdApplyAfterVerify() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
 	cmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to verification config YAML file (for advanced verification)")
-	cmd.PersistentFlags().BoolVar(&useCache, "use-cache", false, "whether to use cache for pulling & verifying image (default: disabled)")
-	cmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", "a directory for storing cached data (if empty, not use cache)")
 
 	return cmd
 }
 
-func applyAfterVerify(filename, imageRef, keyPath, configPath string, useCache bool, cacheDir string, kubeApplyArgs []string) error {
+func applyAfterVerify(filename, imageRef, keyPath, configPath string, kubeApplyArgs []string) error {
 	manifest, err := ioutil.ReadFile(filename)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -93,10 +89,6 @@ func applyAfterVerify(filename, imageRef, keyPath, configPath string, useCache b
 	}
 	if keyPath != "" {
 		vo.KeyPath = keyPath
-	}
-	if useCache && cacheDir != "" {
-		vo.UseCache = useCache
-		vo.CacheDir = cacheDir
 	}
 
 	result, err := k8smanifest.VerifyManifest(manifest, vo)
@@ -140,19 +132,16 @@ func getOriginalFullArgs(separator string) []string {
 func splitApplyArgs(args []string) ([]string, []string) {
 	mainArgs := []string{}
 	kubectlArgs := []string{}
-	mainArgsConditionSingle := map[string]bool{
-		"--use-cache": true,
-	}
+	mainArgsConditionSingle := map[string]bool{}
 	mainArgsConditionDouble := map[string]bool{
-		"--filename":  true,
-		"-f":          true,
-		"--image":     true,
-		"-i":          true,
-		"--key":       true,
-		"-k":          true,
-		"--config":    true,
-		"-c":          true,
-		"--cache-dir": true,
+		"--filename": true,
+		"-f":         true,
+		"--image":    true,
+		"-i":         true,
+		"--key":      true,
+		"-k":         true,
+		"--config":   true,
+		"-c":         true,
 	}
 	skipIndex := map[int]bool{}
 	for i, s := range args {

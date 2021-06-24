@@ -40,8 +40,6 @@ func NewCmdVerifyResource() *cobra.Command {
 	var imageRef string
 	var keyPath string
 	var configPath string
-	var cacheDir string
-	var useCache bool
 	cmd := &cobra.Command{
 		Use:   "verify-resource -f <YAMLFILE> [-i <IMAGE>]",
 		Short: "A command to verify Kubernetes manifests of resources on cluster",
@@ -49,7 +47,7 @@ func NewCmdVerifyResource() *cobra.Command {
 			fullArgs := getOriginalFullArgs("verify-resource")
 			_, kubeGetArgs := splitArgs(fullArgs)
 
-			err := verifyResource(kubeGetArgs, imageRef, keyPath, configPath, useCache, cacheDir)
+			err := verifyResource(kubeGetArgs, imageRef, keyPath, configPath)
 			if err != nil {
 				return err
 			}
@@ -61,13 +59,11 @@ func NewCmdVerifyResource() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&imageRef, "image", "i", "", "signed image name which bundles yaml files")
 	cmd.PersistentFlags().StringVarP(&keyPath, "key", "k", "", "path to your signing key (if empty, do key-less signing)")
 	cmd.PersistentFlags().StringVarP(&configPath, "config", "c", "", "path to verification config YAML file (for advanced verification)")
-	cmd.PersistentFlags().BoolVar(&useCache, "use-cache", false, "whether to use cache for pulling & verifying image (default: disabled)")
-	cmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", "a directory for storing cached data (if empty, not use cache)")
 
 	return cmd
 }
 
-func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string, useCache bool, cacheDir string) error {
+func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string) error {
 	kArgs := []string{"get", "--output", "json"}
 	kArgs = append(kArgs, kubeGetArgs...)
 	log.Debug("kube get args", strings.Join(kArgs, " "))
@@ -105,10 +101,6 @@ func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string, 
 	if keyPath != "" {
 		vo.KeyPath = keyPath
 	}
-	if useCache && cacheDir != "" {
-		vo.UseCache = useCache
-		vo.CacheDir = cacheDir
-	}
 
 	results := []*k8smanifest.VerifyResourceResult{}
 	for _, obj := range objs {
@@ -130,17 +122,14 @@ func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string, 
 func splitArgs(args []string) ([]string, []string) {
 	mainArgs := []string{}
 	kubectlArgs := []string{}
-	mainArgsConditionSingle := map[string]bool{
-		"--use-cache": true,
-	}
+	mainArgsConditionSingle := map[string]bool{}
 	mainArgsConditionDouble := map[string]bool{
-		"--image":     true,
-		"-i":          true,
-		"--key":       true,
-		"-k":          true,
-		"--config":    true,
-		"-c":          true,
-		"--cache-dir": true,
+		"--image":  true,
+		"-i":       true,
+		"--key":    true,
+		"-k":       true,
+		"--config": true,
+		"-c":       true,
 	}
 	skipIndex := map[int]bool{}
 	for i, s := range args {

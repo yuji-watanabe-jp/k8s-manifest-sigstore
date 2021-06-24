@@ -39,7 +39,7 @@ const (
 	SignatureAnnotationKey   = "cosign.sigstore.dev/siganture"
 	CertificateAnnotationKey = "cosign.sigstore.dev/certificate"
 	MessageAnnotationKey     = "cosign.sigstore.dev/message"
-	BundleAnnotationKey      = "cosign.sigstore.dev/bundle"
+	BundleAnnotationKey      = "cosign.sigstore.dev/bundle" // bundle is not supported in cosign.SignBlob() so far
 )
 
 var annotationKeyMap = map[string]string{
