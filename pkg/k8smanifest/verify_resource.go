@@ -130,7 +130,7 @@ func VerifyResource(obj unstructured.Unstructured, vo *VerifyResourceOption) (*V
 		keyPath = &(vo.KeyPath)
 	}
 
-	verified, signerName, err = NewSignatureVerifier(objBytes, vo.ImageRef).Verify(keyPath)
+	verified, signerName, err = NewSignatureVerifier(objBytes, vo.ImageRef, keyPath).Verify()
 	if err != nil {
 		return nil, errors.Wrap(err, "error occured during signature verification")
 	}

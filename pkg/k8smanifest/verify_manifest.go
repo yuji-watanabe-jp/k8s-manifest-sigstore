@@ -75,7 +75,7 @@ func VerifyManifest(manifest []byte, vo *VerifyManifestOption) (*VerifyResult, e
 		keyPath = &(vo.KeyPath)
 	}
 
-	verified, signerName, err = NewSignatureVerifier(manifest, vo.ImageRef).Verify(keyPath)
+	verified, signerName, err = NewSignatureVerifier(manifest, vo.ImageRef, keyPath).Verify()
 	if err != nil {
 		return nil, errors.Wrap(err, "error occured during signature verification")
 	}

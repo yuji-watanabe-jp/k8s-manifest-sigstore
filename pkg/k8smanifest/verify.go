@@ -38,10 +38,10 @@ var EmbeddedAnnotationMaskKeys = []string{
 }
 
 type SignatureVerifier interface {
-	Verify(pubkeyPath *string) (bool, string, error)
+	Verify() (bool, string, error)
 }
 
-func NewSignatureVerifier(objYAMLBytes []byte, imageRef string) SignatureVerifier {
+func NewSignatureVerifier(objYAMLBytes []byte, imageRef string, pubkeyPath *string) SignatureVerifier {
 	var annotations map[string]string
 	if imageRef == "" {
 		annotations = k8smnfutil.GetAnnotationsInYAML(objYAMLBytes)
@@ -57,23 +57,25 @@ func NewSignatureVerifier(objYAMLBytes []byte, imageRef string) SignatureVerifie
 }
 
 type ImageSignatureVerifier struct {
-	imageRef string
+	imageRef   string
+	pubkeyPath *string
 }
 
-func (v *ImageSignatureVerifier) Verify(pubkeyPath *string) (bool, string, error) {
+func (v *ImageSignatureVerifier) Verify() (bool, string, error) {
 	imageRef := v.imageRef
 	if imageRef == "" {
 		return false, "", errors.New("no image reference is found")
 	}
 
-	return k8smnfcosign.VerifyImage(imageRef, pubkeyPath)
+	return k8smnfcosign.VerifyImage(imageRef, v.pubkeyPath)
 }
 
 type AnnotationSignatureVerifier struct {
 	annotations map[string]string
+	pubkeyPath  *string
 }
 
-func (v *AnnotationSignatureVerifier) Verify(pubkeyPath *string) (bool, string, error) {
+func (v *AnnotationSignatureVerifier) Verify() (bool, string, error) {
 	annotations := v.annotations
 
 	msg, ok := annotations[MessageAnnotationKey]
@@ -90,7 +92,7 @@ func (v *AnnotationSignatureVerifier) Verify(pubkeyPath *string) (bool, string, 
 	sigBytes := []byte(sig)
 	certBytes := []byte(cert)
 
-	return k8smnfcosign.VerifyBlob(msgBytes, sigBytes, certBytes, pubkeyPath)
+	return k8smnfcosign.VerifyBlob(msgBytes, sigBytes, certBytes, v.pubkeyPath)
 }
 
 // This is an interface for fetching YAML manifest
