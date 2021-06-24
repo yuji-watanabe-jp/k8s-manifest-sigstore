@@ -21,17 +21,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/spf13/cobra"
 	"github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/k8smanifest"
 	k8ssigutil "github.com/yuji-watanabe-jp/k8s-manifest-sigstore/pkg/util"
+	metatable "k8s.io/apimachinery/pkg/api/meta/table"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -87,18 +86,25 @@ func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string) 
 		objs = append(objs, tmpObj)
 	}
 
-	vo := &k8smanifest.VerifyOption{}
+	vo := &k8smanifest.VerifyResourceOption{}
 	if configPath != "" {
-		vo, err = k8smanifest.LoadVerifyConfig(configPath)
+		vo, err = k8smanifest.LoadVerifyResourceConfig(configPath)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			return nil
 		}
 	}
 
+	if imageRef != "" {
+		vo.ImageRef = imageRef
+	}
+	if keyPath != "" {
+		vo.KeyPath = keyPath
+	}
+
 	results := []*k8smanifest.VerifyResourceResult{}
 	for _, obj := range objs {
-		result, err := k8smanifest.VerifyResource(obj, imageRef, keyPath, vo)
+		result, err := k8smanifest.VerifyResource(obj, vo)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			return nil
@@ -116,7 +122,8 @@ func verifyResource(kubeGetArgs []string, imageRef, keyPath, configPath string) 
 func splitArgs(args []string) ([]string, []string) {
 	mainArgs := []string{}
 	kubectlArgs := []string{}
-	mainArgsCondition := map[string]bool{
+	mainArgsConditionSingle := map[string]bool{}
+	mainArgsConditionDouble := map[string]bool{
 		"--image":  true,
 		"-i":       true,
 		"--key":    true,
@@ -129,7 +136,9 @@ func splitArgs(args []string) ([]string, []string) {
 		if skipIndex[i] {
 			continue
 		}
-		if mainArgsCondition[s] {
+		if mainArgsConditionSingle[s] {
+			mainArgs = append(mainArgs, args[i])
+		} else if mainArgsConditionDouble[s] {
 			mainArgs = append(mainArgs, args[i])
 			mainArgs = append(mainArgs, args[i+1])
 			skipIndex[i+1] = true
@@ -162,10 +171,5 @@ func makeResourceResultTable(results []*k8smanifest.VerifyResourceResult) []byte
 }
 
 func getAge(t metav1.Time) string {
-	ut := t.Time.UTC()
-	dur := time.Now().UTC().Sub(ut)
-	durStrBase := strings.Split(dur.String(), ".")[0] + "s"
-	re := regexp.MustCompile(`\d+[a-z]`)
-	age := re.FindString(durStrBase)
-	return age
+	return metatable.ConvertToHumanReadableDateType(t)
 }
