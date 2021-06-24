@@ -36,7 +36,7 @@ import (
 
 const (
 	ImageRefAnnotationKey    = "cosign.sigstore.dev/imageRef"
-	SignatureAnnotationKey   = "cosign.sigstore.dev/siganture"
+	SignatureAnnotationKey   = "cosign.sigstore.dev/signature"
 	CertificateAnnotationKey = "cosign.sigstore.dev/certificate"
 	MessageAnnotationKey     = "cosign.sigstore.dev/message"
 	BundleAnnotationKey      = "cosign.sigstore.dev/bundle" // bundle is not supported in cosign.SignBlob() so far
